@@ -360,6 +360,9 @@ supabase:
   pending_file: pending_uploads.jsonl
   # How often (seconds) to retry the offline backlog.
   retry_seconds: 60
+  # Heartbeat: pulse device_status every retry cycle so a server-side job can
+  # detect an unexpected shutdown / going dark and alert the partners.
+  heartbeat: true
 
 # GREEN activity trail: log a clean record (app/site + timestamp, NO image) of
 # what's on screen even when nothing is flagged, so a reviewer can see the full

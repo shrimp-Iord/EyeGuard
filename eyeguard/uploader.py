@@ -38,11 +38,12 @@ def _score(reason: str) -> float | None:
 
 class SupabaseUploader:
     def __init__(self, url: str, secret: str, pending_path: str,
-                 retry_seconds: int = 60):
+                 retry_seconds: int = 60, heartbeat: bool = True):
         self.base = url.rstrip("/")
         self.secret = secret
         self.pending_path = Path(pending_path)
         self.retry_seconds = retry_seconds
+        self.heartbeat = heartbeat
         self._lock = threading.Lock()          # guards the pending file
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -105,13 +106,42 @@ class SupabaseUploader:
     # ---- worker -------------------------------------------------------------
 
     def _worker(self):
+        # Pulse once right away so "last seen" is fresh the moment we start.
+        if self.heartbeat:
+            try:
+                self.send_heartbeat("alive")
+            except Exception:
+                pass
         while not self._stop.is_set():
             try:
                 self._flush()
             except Exception:
                 pass  # never let the uploader crash the app
+            if self.heartbeat:
+                try:
+                    self.send_heartbeat("alive")
+                except Exception:
+                    pass  # a missed pulse is exactly what "gone dark" detects
             self._wake.wait(self.retry_seconds)
             self._wake.clear()
+
+    def send_heartbeat(self, status: str = "alive"):
+        """Upsert the single device_status row. status='alive' also clears the
+        `alerted` flag so a future outage can fire a fresh alert; a clean
+        shutdown sets status='clean_shutdown' so it doesn't false-alarm."""
+        now = datetime.now(timezone.utc).isoformat()
+        row = {"id": 1, "last_heartbeat": now, "status": status,
+               "updated_at": now}
+        if status == "alive":
+            row["alerted"] = False
+        req = urllib.request.Request(
+            f"{self.base}/rest/v1/device_status", data=json.dumps(row).encode(),
+            method="POST",
+            headers=self._headers({
+                "Content-Type": "application/json",
+                "Prefer": "resolution=merge-duplicates,return=minimal"}))
+        with urllib.request.urlopen(req, timeout=15) as r:
+            r.read()
 
     def _flush(self):
         with self._lock:
