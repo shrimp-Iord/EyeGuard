@@ -1,0 +1,301 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EyeGuard — Partner Dashboard</title>
+<style>
+:root{
+  --bg:#0b0e12;--card:#151b22;--line:#2a333d;--ink:#eef2f6;--muted:#7e8a98;
+  --teal:#1b4b63;--red:#e5403a;--yellow:#f2a200;--green:#2fb85c;
+  --head:"Futura","Jost","Century Gothic","Trebuchet MS",sans-serif;
+  --body:"Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);
+  min-height:100vh;}
+.hidden{display:none !important;}
+
+/* ---------- top bar (full width) ---------- */
+.topbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;
+  padding:14px 28px;background:linear-gradient(135deg,#1b4b63,#08161f);
+  border-bottom:1px solid var(--line);}
+.topbar h1{font-family:var(--head);font-size:19px;margin:0;font-weight:700;
+  text-transform:uppercase;letter-spacing:.07em;}
+.topbar .sub{color:#a9c2cf;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}
+.spacer{flex:1;}
+.live{display:inline-flex;align-items:center;gap:7px;color:var(--green);font-size:11px;
+  text-transform:uppercase;letter-spacing:.06em;}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);
+  animation:pulse 1.4s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+.seen{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;}
+.who{color:#a9c2cf;font-size:12px;}
+.btn{font-family:var(--head);font-size:12px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--ink);background:rgba(255,255,255,.08);
+  border:1px solid var(--line);padding:9px 16px;cursor:pointer;}
+.btn:hover{background:rgba(255,255,255,.16);}
+.btn.primary{background:var(--teal);border-color:#2b6a86;}
+.btn.primary:hover{background:#236079;}
+
+/* ---------- controls row ---------- */
+.controls{display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+  max-width:1680px;margin:0 auto;padding:18px 28px 4px;}
+.stats{display:flex;gap:12px;}
+.stat{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--line);
+  padding:12px 20px;min-width:104px;}
+.stat .n{font-family:var(--head);font-size:26px;font-weight:700;line-height:1;}
+.stat .l{font-size:10.5px;color:var(--muted);margin-top:5px;text-transform:uppercase;
+  letter-spacing:.09em;font-weight:600;}
+.stat.red{border-top-color:var(--red);}.stat.red .n{color:var(--red);}
+.stat.yellow{border-top-color:var(--yellow);}.stat.yellow .n{color:var(--yellow);}
+.stat.green{border-top-color:var(--green);}.stat.green .n{color:var(--green);}
+.filters{display:flex;gap:8px;margin-left:auto;}
+.fbtn{font-family:var(--head);font-size:12px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted);background:var(--card);
+  border:1px solid var(--line);padding:10px 18px;cursor:pointer;}
+.fbtn.active{color:var(--ink);border-color:#46c;background:#1d2630;}
+.fbtn[data-sev="red"].active{border-color:var(--red);color:#ff8a85;}
+.fbtn[data-sev="yellow"].active{border-color:var(--yellow);color:#ffc24d;}
+.fbtn[data-sev="green"].active{border-color:var(--green);color:#5fd98a;}
+
+/* ---------- feed (wide, fills landscape) ---------- */
+.feed{max-width:1680px;margin:0 auto;padding:8px 28px 60px;}
+.day{margin-top:26px;}
+.day h2{font-family:var(--head);font-size:13px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.1em;margin:0 0 12px;display:flex;align-items:center;gap:9px;font-weight:700;}
+.daycount{background:var(--card);border:1px solid var(--line);padding:2px 9px;
+  font-size:11px;color:var(--muted);}
+/* the key fix: a responsive grid that expands to fill the whole width */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+  gap:14px;align-items:start;}
+.card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);
+  overflow:hidden;}
+.card.red{border-left-color:var(--red);}
+.card.yellow{border-left-color:var(--yellow);}
+.card.green{border-left-color:var(--green);}
+.card img.thumb{width:100%;height:190px;object-fit:cover;background:#000;display:block;
+  border-bottom:1px solid var(--line);cursor:pointer;}
+.card .body{padding:11px 14px;}
+.rtop{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.time{font-family:var(--head);color:var(--muted);font-size:12px;letter-spacing:.03em;}
+.pill{font-family:var(--head);font-size:10px;font-weight:700;padding:3px 10px;
+  text-transform:uppercase;letter-spacing:.06em;}
+.pill.red{background:rgba(229,64,58,.18);color:#ff8a85;}
+.pill.yellow{background:rgba(242,162,0,.18);color:#ffc24d;}
+.pill.green{background:rgba(47,184,92,.16);color:#5fd98a;}
+.grade{font-family:var(--head);font-size:9.5px;font-weight:700;padding:3px 8px;
+  text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line);}
+.grade.g-hi{color:#ff8a85;border-color:#5a2b2b;}
+.grade.g-mid{color:#ffc24d;border-color:#5a4a1f;}
+.grade.g-lo{color:var(--muted);}
+.where{font-weight:700;font-size:13.5px;margin-top:8px;word-break:break-word;}
+.what{color:var(--muted);font-size:12px;margin-top:4px;}
+.card.green .body{padding:9px 14px;}
+.card.green .where{margin-top:7px;font-size:13px;}
+.empty{font-family:var(--head);text-align:center;color:var(--green);padding:80px 0;
+  font-size:20px;letter-spacing:.05em;}
+/* filtering */
+body[data-filter="red"] .card:not(.red),
+body[data-filter="yellow"] .card:not(.yellow),
+body[data-filter="green"] .card:not(.green){display:none;}
+body[data-filter="red"] .day:not(:has(.card.red)),
+body[data-filter="yellow"] .day:not(:has(.card.yellow)),
+body[data-filter="green"] .day:not(:has(.card.green)){display:none;}
+
+/* ---------- login ---------- */
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+.loginbox{width:100%;max-width:400px;background:var(--card);border:1px solid var(--line);
+  padding:34px 30px;text-align:center;}
+.loginbox .eye{margin-bottom:14px;}
+.loginbox h1{font-family:var(--head);font-size:22px;margin:0 0 4px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;}
+.loginbox p{color:var(--muted);font-size:13px;margin:0 0 22px;}
+.loginbox input{width:100%;padding:12px 14px;background:var(--bg);border:1px solid var(--line);
+  color:var(--ink);font:15px var(--body);margin-bottom:12px;}
+.loginbox input:focus{outline:none;border-color:#46c;}
+.loginbox .btn{width:100%;padding:13px;}
+.msg{font-size:12.5px;margin-top:14px;min-height:18px;}
+.msg.ok{color:var(--green);}.msg.err{color:#ff8a85;}
+footer{color:var(--muted);font-size:11px;text-align:center;padding:24px;
+  text-transform:uppercase;letter-spacing:.04em;line-height:1.8;}
+
+@media(max-width:640px){
+  .topbar,.controls,.feed{padding-left:16px;padding-right:16px;}
+  .filters{margin-left:0;}.controls{gap:14px;}
+}
+</style></head>
+<body data-filter="all">
+
+<!-- ============ LOGIN ============ -->
+<div class="login" id="login">
+  <div class="loginbox">
+    <div class="eye"><svg viewBox="0 0 100 100" width="46" height="46" fill="none">
+      <path stroke="#fff" stroke-width="2.5" d="M5.5,50 C25.5,21 74.5,21 94.5,50 C74.5,79 25.5,79 5.5,50 Z"/>
+      <path fill="#fff" fill-rule="evenodd" d="M12.5,50 C31,28 69,28 87.5,50 C69,72 31,72 12.5,50 Z M45.5,49 A5.5,5.5 0 1 1 54.5,49 L53,57.5 L47,57.5 Z"/></svg></div>
+    <h1>EyeGuard</h1>
+    <p>Partner access · accountability dashboard</p>
+    <input id="email" type="email" placeholder="your email" autocomplete="email">
+    <button class="btn primary" id="sendBtn" onclick="sendLink()">Send login link</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+</div>
+
+<!-- ============ DASHBOARD ============ -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <svg viewBox="0 0 100 100" width="30" height="30" fill="none">
+      <path stroke="#fff" stroke-width="2.5" d="M5.5,50 C25.5,21 74.5,21 94.5,50 C74.5,79 25.5,79 5.5,50 Z"/>
+      <path fill="#fff" fill-rule="evenodd" d="M12.5,50 C31,28 69,28 87.5,50 C69,72 31,72 12.5,50 Z M45.5,49 A5.5,5.5 0 1 1 54.5,49 L53,57.5 L47,57.5 Z"/></svg>
+    <div><h1>EyeGuard</h1><div class="sub">Partner Dashboard</div></div>
+    <span class="live"><span class="dot"></span>Live</span>
+    <span class="seen" id="lastSeen"></span>
+    <span class="spacer"></span>
+    <span class="who" id="who"></span>
+    <button class="btn" onclick="signOut()">Sign out</button>
+  </div>
+
+  <div class="controls">
+    <div class="stats">
+      <div class="stat red"><div class="n" id="cRed">0</div><div class="l">Revealing</div></div>
+      <div class="stat yellow"><div class="n" id="cYellow">0</div><div class="l">Suggestive</div></div>
+      <div class="stat green"><div class="n" id="cGreen">0</div><div class="l">Browsing</div></div>
+    </div>
+    <div class="filters">
+      <button class="fbtn active" data-sev="all" onclick="flt('all')">All</button>
+      <button class="fbtn" data-sev="red" onclick="flt('red')">Revealing</button>
+      <button class="fbtn" data-sev="yellow" onclick="flt('yellow')">Suggestive</button>
+      <button class="fbtn" data-sev="green" onclick="flt('green')">Browsing</button>
+    </div>
+  </div>
+
+  <div class="feed" id="feed"></div>
+  <footer>Read-only · history auto-deletes after 7 days · flags carry a review image, browsing shows site only</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+// ---- config (public: publishable key is client-safe; data is protected by
+// row-level security + disabled signups) ----
+const SUPABASE_URL = "https://ucgldleacehxjjwwqomk.supabase.co";
+const SUPABASE_KEY = "sb_publishable_y9pDf3aBNY4Le5u9tbUXzg_qCRvMn-b";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = (id) => document.getElementById(id);
+let pollTimer = null;
+
+// ---------- auth ----------
+async function sendLink(){
+  const email = $("email").value.trim();
+  const msg = $("loginMsg");
+  if(!email){ msg.className="msg err"; msg.textContent="Enter your email."; return; }
+  $("sendBtn").disabled = true;
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options:{ shouldCreateUser:false,
+              emailRedirectTo: location.origin + location.pathname }
+  });
+  $("sendBtn").disabled = false;
+  if(error){ msg.className="msg err";
+    msg.textContent = /not allowed|signups|Signups/.test(error.message)
+      ? "This email isn't registered for access." : error.message; }
+  else{ msg.className="msg ok";
+    msg.textContent="Check your email for a login link."; }
+}
+async function signOut(){ await sb.auth.signOut(); location.reload(); }
+
+async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(session){ showApp(session); } else { $("login").classList.remove("hidden"); }
+  sb.auth.onAuthStateChange((_e, s)=>{
+    if(s && $("app").classList.contains("hidden")) showApp(s);
+  });
+}
+function showApp(session){
+  $("login").classList.add("hidden");
+  $("app").classList.remove("hidden");
+  $("who").textContent = session.user.email;
+  history.replaceState(null,"",location.pathname); // strip auth tokens from URL
+  load();
+  if(pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(load, 20000); // live refresh
+}
+
+// ---------- data ----------
+const esc = (s)=>String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;")
+  .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+async function load(){
+  const { data, error } = await sb.from("flags")
+    .select("*").order("flagged_at",{ascending:false}).limit(1200);
+  if(error){ console.error(error); return; }
+  const rows = data || [];
+
+  // counts
+  $("cRed").textContent    = rows.filter(r=>r.verdict==="flagged").length;
+  $("cYellow").textContent = rows.filter(r=>r.verdict==="alert").length;
+  $("cGreen").textContent  = rows.filter(r=>r.verdict==="clear").length;
+  if(rows.length){
+    const t = new Date(rows[0].flagged_at);
+    $("lastSeen").textContent = "Last activity " + t.toLocaleString([],
+      {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+  }
+
+  // signed URLs for the images (private bucket)
+  const paths = rows.filter(r=>r.image_path).map(r=>r.image_path);
+  const signed = {};
+  if(paths.length){
+    const { data:sd } = await sb.storage.from("frames").createSignedUrls(paths, 3600);
+    (sd||[]).forEach(x=>{ if(x.signedUrl) signed[x.path]=x.signedUrl; });
+  }
+
+  // group by local day
+  const byDay = {}; const order = [];
+  for(const r of rows){
+    const dt = new Date(r.flagged_at);
+    const day = dt.toLocaleDateString([], {weekday:"long",month:"long",day:"numeric"});
+    if(!byDay[day]){ byDay[day]=[]; order.push(day); }
+    byDay[day].push(card(r, dt, signed));
+  }
+  const feed = $("feed");
+  if(!rows.length){ feed.innerHTML='<div class="empty">NO ACTIVITY YET</div>'; return; }
+  feed.innerHTML = order.map(day=>
+    `<section class="day"><h2>${esc(day)}<span class="daycount">${byDay[day].length}</span></h2>`
+    + `<div class="grid">${byDay[day].join("")}</div></section>`).join("");
+  feed.querySelectorAll("img.thumb").forEach(img=>{
+    img.onclick=()=>window.open(img.src,"_blank"); });
+}
+
+function where(r){
+  const app = esc(r.app||"an app");
+  const loc = r.url||r.window_title;
+  return app + (loc? ` — ${esc(loc)}` : "");
+}
+function card(r, dt, signed){
+  const time = dt.toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+  if(r.verdict==="clear"){
+    return `<div class="card green"><div class="body"><div class="rtop">`
+      + `<span class="time">${time}</span><span class="pill green">Browsing</span></div>`
+      + `<div class="where">${where(r)}</div></div></div>`;
+  }
+  const red = r.verdict==="flagged";
+  const sevCls = red?"red":"yellow";
+  const sevTxt = red ? (r.is_nudity?"Nudity":"Revealing") : "Suggestive";
+  const gcls = {Likely:"g-hi",Possible:"g-mid",Borderline:"g-lo"}[r.grade]||"";
+  const grade = r.grade? `<span class="grade ${gcls}">${esc(r.grade)}</span>` : "";
+  const url = r.image_path && signed[r.image_path];
+  const img = url? `<img class="thumb" src="${url}" loading="lazy">` : "";
+  const what = red ? (r.is_nudity? "explicit nudity / exposed body — see image"
+                                 : "very revealing content — see image")
+                   : esc((r.reason||"").split(":").pop()||"suggestive content");
+  return `<div class="card ${sevCls}">${img}<div class="body"><div class="rtop">`
+    + `<span class="time">${time}</span><span class="pill ${sevCls}">${sevTxt}</span>${grade}`
+    + `</div><div class="where">${where(r)}</div><div class="what">${what}</div></div></div>`;
+}
+
+// ---------- filters ----------
+function flt(s){
+  document.body.dataset.filter=s;
+  document.querySelectorAll(".fbtn").forEach(b=>b.classList.toggle("active",b.dataset.sev===s));
+}
+boot();
+</script>
+</body></html>
