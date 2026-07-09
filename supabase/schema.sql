@@ -31,7 +31,10 @@ create index if not exists flags_time_idx on public.flags (flagged_at desc);
 alter table public.flags enable row level security;
 drop policy if exists "partner reads flags" on public.flags;
 create policy "partner reads flags" on public.flags
-  for select to authenticated using (true);
+  for select to authenticated using (
+    -- father + spouse only (see supabase/lock_partners.sql)
+    auth.uid() in ('0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',
+                   '1818ac68-7ecf-4e39-a758-8526e496247d'));
 
 -- Private bucket for the frame images (blurred reds / clear yellows).
 insert into storage.buckets (id, name, public)
@@ -39,7 +42,10 @@ insert into storage.buckets (id, name, public)
   on conflict (id) do nothing;
 drop policy if exists "partner reads frames" on storage.objects;
 create policy "partner reads frames" on storage.objects
-  for select to authenticated using (bucket_id = 'frames');
+  for select to authenticated using (
+    bucket_id = 'frames' and
+    auth.uid() in ('0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',
+                   '1818ac68-7ecf-4e39-a758-8526e496247d'));
 
 -- 7-DAY AUTO-WIPE of flag rows (hourly). The images themselves are deleted by
 -- the agent via the storage API during its own local retention prune.
