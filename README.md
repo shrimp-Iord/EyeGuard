@@ -1,6 +1,6 @@
 # EyeGuard
 
-A **local-only**, 24/7 screen-content accountability monitor for macOS.
+A 24/7 screen-content accountability monitor for macOS.
 
 Unlike text/URL-based accountability tools, EyeGuard analyzes the **actual screen
 pixels** — so it sees content regardless of which app, browser, video, game, or
