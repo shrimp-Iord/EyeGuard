@@ -344,3 +344,19 @@ logging:
   # Keep flag data this many days, then auto-delete it. Pruning runs at startup
   # and hourly (menu bar app) / at startup (terminal).
   retention_days: 7
+
+# Cloud sync: mirror flags + images to Supabase so the accountability partner
+# can see them from anywhere. The agent uploads with the sb_secret key, read
+# from secret_file (never stored here). The URL and publishable key are NOT
+# secret — the publishable key is only usable with a partner login.
+supabase:
+  enabled: true
+  url: https://ucgldleacehxjjwwqomk.supabase.co
+  # Server-side secret key: read from this file (chmod 600), never from config.
+  secret_file: .supabase_secret
+  # Public client key for the partner dashboard (safe to store / commit).
+  publishable_key: sb_publishable_y9pDf3aBNY4Le5u9tbUXzg_qCRvMn-b
+  # Persistent offline queue: flags wait here until they upload successfully.
+  pending_file: pending_uploads.jsonl
+  # How often (seconds) to retry the offline backlog.
+  retry_seconds: 60

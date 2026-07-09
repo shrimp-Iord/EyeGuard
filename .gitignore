@@ -11,6 +11,8 @@ flags_readable.txt
 flagged_frames/
 logs/
 .eyeguard.lock
+pending_uploads.jsonl
+pending_uploads.tmp
 
 # --- heavy / generated artifacts ---
 .venv/
