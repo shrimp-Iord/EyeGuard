@@ -21,7 +21,7 @@ from pathlib import Path
 import rumps
 
 from .capture import ScreenCapturer
-from .context import capture_context, is_ignored
+from .context import capture_context, frontmost_is_self, is_ignored
 from .risk import assess
 from .detector import Verdict
 from .logger import FlagLogger
@@ -336,8 +336,10 @@ class EyeGuardApp(rumps.App):
                 if self._activity_on and time.time() - last_activity >= act_sample:
                     last_activity = time.time()
                     actx = capture_context()
-                    if not is_ignored(actx, self._ignore):
-                        loc = (f"{actx.get('app')}|"
+                    app_name = actx.get("app")
+                    if (app_name and not frontmost_is_self()
+                            and not is_ignored(actx, self._ignore)):
+                        loc = (f"{app_name}|"
                                f"{actx.get('url') or actx.get('window_title')}")
                         now2 = time.time()
                         if (loc != last_activity_loc

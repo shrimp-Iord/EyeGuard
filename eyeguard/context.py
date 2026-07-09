@@ -13,6 +13,7 @@ simply omitted rather than blocking a flag.
 
 from __future__ import annotations
 
+import os
 import subprocess
 
 # Browsers whose active-tab URL is reachable via AppleScript, and the script to
@@ -59,6 +60,17 @@ def frontmost_app() -> str | None:
         return _osascript(
             'tell application "System Events" to get name of '
             '(first process whose frontmost is true)')
+
+
+def frontmost_is_self() -> bool:
+    """True if EyeGuard's own process is the frontmost app — so the activity
+    trail doesn't log ourselves (e.g. the brief moment we're focused at launch)."""
+    try:
+        from AppKit import NSWorkspace
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        return bool(app and app.processIdentifier() == os.getpid())
+    except Exception:
+        return False
 
 
 def front_window_title(app_name: str | None) -> str | None:
