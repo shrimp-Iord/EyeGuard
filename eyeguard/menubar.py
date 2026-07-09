@@ -64,6 +64,8 @@ class EyeGuardApp(rumps.App):
         self._ignore = self.cfg.get("ignore", {}).get("window_title_contains", [])
         self._risk = self.cfg.get("context_risk", {})
         self._risk_on = bool(self._risk.get("enabled"))
+        self._activity = self.cfg.get("activity_logging", {})
+        self._activity_on = bool(self._activity.get("enabled"))
 
         # Shared state, written by the detection thread, read by the UI timer.
         self._lock = threading.Lock()
@@ -271,6 +273,13 @@ class EyeGuardApp(rumps.App):
         last_seen_count = 0
         last_growth_time = time.time()
         FROZEN_SECONDS = 120  # no new analyzed frames this long while up = blind
+        # GREEN activity trail: how often to sample the active app/site, and how
+        # often to re-log the SAME location (a keepalive proving continued use).
+        act_sample = int(self._activity.get("sample_seconds", 20))
+        act_heartbeat = int(self._activity.get("heartbeat_seconds", 300))
+        last_activity = 0.0
+        last_activity_loc = None
+        last_activity_log = 0.0
         while not self._stop.is_set():
             try:
                 for frame in capturer.capture(skip_unchanged=True):
@@ -320,6 +329,24 @@ class EyeGuardApp(rumps.App):
                         print(f"[probe] PROBLEM brightness={bright} "
                               f"frames={frames} frozen={frozen} "
                               f"(no screen access?)", flush=True)
+
+                # GREEN activity trail: record what app/site is active (no image)
+                # so a reviewer sees everywhere the user went — a new row on each
+                # change of location, plus a keepalive every heartbeat interval.
+                if self._activity_on and time.time() - last_activity >= act_sample:
+                    last_activity = time.time()
+                    actx = capture_context()
+                    if not is_ignored(actx, self._ignore):
+                        loc = (f"{actx.get('app')}|"
+                               f"{actx.get('url') or actx.get('window_title')}")
+                        now2 = time.time()
+                        if (loc != last_activity_loc
+                                or now2 - last_activity_log >= act_heartbeat):
+                            rec = logger.log_activity(actx)
+                            if uploader is not None:
+                                uploader.enqueue(rec)
+                            last_activity_loc = loc
+                            last_activity_log = now2
             except Exception as e:
                 with self._lock:
                     self._watching = False

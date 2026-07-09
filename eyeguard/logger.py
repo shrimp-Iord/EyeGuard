@@ -68,3 +68,20 @@ class FlagLogger:
         with self.flag_log.open("a") as f:
             f.write(json.dumps(record) + "\n")
         return record
+
+    def log_activity(self, context: dict | None = None) -> dict:
+        """Log a clean (GREEN) browsing record: what app/site is active, with a
+        timestamp and no image. This builds the full activity trail so a reviewer
+        sees everywhere the user went — not only frames the detector flagged."""
+        ctx = context or {}
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "verdict": "clear",
+            "reason": "activity",
+            "app": ctx.get("app"),
+            "url": ctx.get("url"),
+            "window_title": ctx.get("window_title"),
+        }
+        with self.flag_log.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+        return record

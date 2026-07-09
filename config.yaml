@@ -360,3 +360,16 @@ supabase:
   pending_file: pending_uploads.jsonl
   # How often (seconds) to retry the offline backlog.
   retry_seconds: 60
+
+# GREEN activity trail: log a clean record (app/site + timestamp, NO image) of
+# what's on screen even when nothing is flagged, so a reviewer can see the full
+# browsing history — nothing gets past human review just because the detector
+# didn't flag it. These log to the same feed with a green marker.
+activity_logging:
+  enabled: true
+  # How often (seconds) to check the active app/site. A new record is written
+  # whenever the location changes since the last one.
+  sample_seconds: 20
+  # Even if the location hasn't changed, re-log at least this often (seconds) as
+  # a keepalive that proves continued use (e.g. a long session on one site).
+  heartbeat_seconds: 300

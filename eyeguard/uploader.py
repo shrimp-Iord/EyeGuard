@@ -143,13 +143,19 @@ class SupabaseUploader:
     # ---- one record ---------------------------------------------------------
 
     def _upload(self, rec: dict) -> bool:
-        """Upload image then insert the row. Returns True when done (or when the
-        image is gone, so we stop retrying a flag we can never complete)."""
+        """Upload one record. Returns True when done (or when it can never
+        complete, so we stop retrying)."""
+        # GREEN activity records are intentionally imageless — just insert the
+        # row (where + when). The "no alert without an image" rule applies only
+        # to FLAGS (red/yellow), which must carry a frame the partner can review.
+        if rec.get("verdict") == "clear":
+            self._post_row(self._row(rec, None))             # raises on failure
+            return True
         local = rec.get("saved_frame")
         if not local or not Path(local).exists():
-            return True  # no image -> no alert; drop from queue
+            return True  # flag with no image -> no alert; drop from queue
         remote = Path(local).name
-        self._put_image(remote, Path(local).read_bytes())   # raises on failure
+        self._put_image(remote, Path(local).read_bytes())    # raises on failure
         self._post_row(self._row(rec, remote))               # raises on failure
         return True
 

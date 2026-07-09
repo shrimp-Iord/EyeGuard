@@ -11,8 +11,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-_EMOJI = {"flagged": "🔴", "alert": "🟡", "review": "⚪"}
-_LABEL = {"flagged": "REVEALING", "alert": "suggestive", "review": "review"}
+_EMOJI = {"flagged": "🔴", "alert": "🟡", "review": "⚪", "clear": "🟢"}
+_LABEL = {"flagged": "REVEALING", "alert": "suggestive", "review": "review",
+          "clear": "browsing"}
 
 
 def _fmt_record(rec: dict) -> str:
@@ -158,6 +159,7 @@ def write_html_report(flag_log: str | Path, out_path: str | Path,
     records.sort(key=lambda r: r.get("timestamp", ""), reverse=True)
     reds = sum(1 for r in records if r.get("verdict") == "flagged")
     yellows = sum(1 for r in records if r.get("verdict") == "alert")
+    greens = sum(1 for r in records if r.get("verdict") == "clear")
     now = datetime.now()
 
     # Group rows by local day.
@@ -172,6 +174,17 @@ def write_html_report(flag_log: str | Path, out_path: str | Path,
             rows_by_day[day] = []
             order.append(day)
         verdict = r.get("verdict", "")
+        # GREEN: a clean browsing record — no image, just where + when. This is
+        # the full activity trail so a reviewer can see everywhere the user went,
+        # not only the frames the detector flagged.
+        if verdict == "clear":
+            rows_by_day[day].append(
+                f'<div class="row green">'
+                f'<div class="meta"><div class="rtop">'
+                f'<span class="time">{dt.strftime("%-I:%M %p")}</span>'
+                f'<span class="pill green">Browsing</span>'
+                f'<span class="where">{_where(r)}</span></div></div></div>')
+            continue
         sev_cls = "red" if verdict == "flagged" else "yellow"
         if verdict == "flagged":
             sev_txt = ("Nudity" if (r.get("reason") or "").startswith("nudenet")
@@ -230,6 +243,7 @@ letter-spacing:.02em;}}
 letter-spacing:.09em;font-weight:600;}}
 .card.red{{border-top-color:var(--red);}}.card.red .n{{color:var(--red);}}
 .card.yellow{{border-top-color:var(--yellow);}}.card.yellow .n{{color:var(--yellow);}}
+.card.green{{border-top-color:var(--green);}}.card.green .n{{color:var(--green);}}
 .filters{{display:flex;gap:8px;margin:14px 0 4px;}}
 .fbtn{{font-family:var(--head);font-size:12px;font-weight:700;text-transform:uppercase;
 letter-spacing:.08em;color:var(--muted);background:var(--card);
@@ -237,6 +251,7 @@ border:1px solid var(--line);padding:9px 16px;cursor:pointer;}}
 .fbtn.active{{color:var(--ink);border-color:#46c;background:#1d2630;}}
 .fbtn[data-sev="red"].active{{border-color:var(--red);color:#ff8a85;}}
 .fbtn[data-sev="yellow"].active{{border-color:var(--yellow);color:#ffc24d;}}
+.fbtn[data-sev="green"].active{{border-color:var(--green);color:#5fd98a;}}
 h2{{font-family:var(--head);font-size:13px;color:var(--muted);text-transform:uppercase;
 letter-spacing:.1em;margin:24px 0 8px;display:flex;align-items:center;gap:8px;
 font-weight:700;}}
@@ -246,6 +261,7 @@ padding:2px 9px;font-size:11px;color:var(--muted);}}
 border:1px solid var(--line);border-left:4px solid var(--line);
 padding:10px 14px;margin-bottom:6px;}}
 .row.red{{border-left-color:var(--red);}}.row.yellow{{border-left-color:var(--yellow);}}
+.row.green{{border-left-color:var(--green);padding:7px 14px;}}
 .thumb{{width:104px;height:64px;object-fit:cover;border:1px solid var(--line);
 flex:none;background:#000;cursor:pointer;}}
 .thumb:hover{{outline:2px solid #46c;}}
@@ -257,6 +273,7 @@ letter-spacing:.03em;}}
 flex:none;text-transform:uppercase;letter-spacing:.06em;}}
 .pill.red{{background:rgba(229,64,58,.18);color:#ff8a85;}}
 .pill.yellow{{background:rgba(242,162,0,.18);color:#ffc24d;}}
+.pill.green{{background:rgba(47,184,92,.16);color:#5fd98a;}}
 .grade{{font-family:var(--head);font-size:10px;font-weight:700;padding:3px 8px;
 flex:none;text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line);}}
 .grade.g-hi{{color:#ff8a85;border-color:#5a2b2b;}}
@@ -274,26 +291,29 @@ font-size:18px;letter-spacing:.05em;}}
 footer{{color:var(--muted);font-size:11px;text-align:center;margin-top:32px;
 line-height:1.8;text-transform:uppercase;letter-spacing:.04em;}}
 /* filtering (CSS :has() hides days that end up empty) */
-body[data-filter="red"] .row.yellow{{display:none;}}
-body[data-filter="yellow"] .row.red{{display:none;}}
+body[data-filter="red"] .row:not(.red){{display:none;}}
+body[data-filter="yellow"] .row:not(.yellow){{display:none;}}
+body[data-filter="green"] .row:not(.green){{display:none;}}
 body[data-filter="red"] .day:not(:has(.row.red)){{display:none;}}
 body[data-filter="yellow"] .day:not(:has(.row.yellow)){{display:none;}}
+body[data-filter="green"] .day:not(:has(.row.green)){{display:none;}}
 </style></head><body data-filter="all"><div class="wrap">
 <header>{_EYE_SVG}<div><h1>EyeGuard Report</h1>
 <div class="sub">Updated {now.strftime('%-I:%M:%S %p')} · last {days} days</div></div>{live_tag}</header>
 <div class="cards">
-<div class="card"><div class="n">{len(records)}</div><div class="l">Total flags</div></div>
 <div class="card red"><div class="n">{reds}</div><div class="l">Revealing</div></div>
 <div class="card yellow"><div class="n">{yellows}</div><div class="l">Suggestive</div></div>
+<div class="card green"><div class="n">{greens}</div><div class="l">Browsing</div></div>
 </div>
 <div class="filters">
 <button class="fbtn active" data-sev="all" onclick="flt('all')">All</button>
 <button class="fbtn" data-sev="red" onclick="flt('red')">Revealing</button>
 <button class="fbtn" data-sev="yellow" onclick="flt('yellow')">Suggestive</button>
+<button class="fbtn" data-sev="green" onclick="flt('green')">Browsing</button>
 </div>
 {sections}
-<footer>Watches the screen locally on this Mac — nothing leaves the device<br>
-History auto-deletes after {days} days · Revealing = immediate-alert (very revealing or nude) · Suggestive = mildly revealing / borderline</footer>
+<footer>Screen watched locally on this Mac · flags and browsing activity shared with your accountability partner<br>
+History auto-deletes after {days} days · Revealing = immediate-alert (very revealing or nude) · Suggestive = mildly revealing / borderline · Browsing = clean activity (site/app only, no image)</footer>
 </div><script>
 function flt(s){{document.body.dataset.filter=s;
 document.querySelectorAll('.fbtn').forEach(function(b){{

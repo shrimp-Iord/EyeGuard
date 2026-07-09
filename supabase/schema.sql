@@ -10,7 +10,7 @@ create table if not exists public.flags (
   id           uuid primary key default gen_random_uuid(),
   created_at   timestamptz not null default now(),
   flagged_at   timestamptz not null,             -- when it was actually flagged
-  verdict      text not null check (verdict in ('flagged','alert')),
+  verdict      text not null check (verdict in ('flagged','alert','clear')),
   is_nudity    boolean not null default false,   -- NudeNet-confirmed exposure
   grade        text,                             -- Likely / Possible / Borderline
   risk         text,                             -- high / neutral / low
