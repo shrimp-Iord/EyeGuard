@@ -29,7 +29,7 @@ begin
                                   'Content-Type', 'application/json'),
     body := jsonb_build_object(
       'from', 'EyeGuard <alerts@alerts.jjpetwasteservices.com>',
-      'to',   jsonb_build_array('partner1@example.com', 'partner2@example.com'),
+      'to',   jsonb_build_array('partner1@example.com', 'partner2@example.com'),  -- set your real recipients
       'subject', subject, 'html', html));
 end $$;
 

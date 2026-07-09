@@ -22,5 +22,5 @@ alter table public.device_status enable row level security;
 drop policy if exists "partner reads status" on public.device_status;
 create policy "partner reads status" on public.device_status
   for select to authenticated using (
-    auth.uid() in ('0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',   -- partner1@example.com
-                   '1818ac68-7ecf-4e39-a758-8526e496247d')); -- partner2@example.com
+    auth.uid() in ('0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',   -- partner 1 (father)
+                   '1818ac68-7ecf-4e39-a758-8526e496247d')); -- partner 2 (spouse)

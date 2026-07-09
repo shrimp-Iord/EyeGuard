@@ -1,96 +1,128 @@
 # EyeGuard
 
-A 24/7 screen-content accountability monitor for macOS.
+A 24/7 screen-content accountability monitor for macOS, with a private cloud
+layer that gives an accountability partner full visibility.
 
 Unlike text/URL-based accountability tools, EyeGuard analyzes the **actual screen
 pixels** — so it sees content regardless of which app, browser, video, game, or
-emulated environment it appears in. All analysis runs **on-device**; no screen
-data ever leaves the machine.
+window it appears in. Detection runs **entirely on-device**; only flags and small
+review images are synced to the partner's dashboard.
 
-## Status: Phase 1 — Detection Core
+---
 
-This phase proves the detection pipeline works and lets you tune its sensitivity
-before any always-on / notification / tamper-resistance layers are built.
+## What it does
 
-### Pipeline
+- **Watches the screen 24/7** — samples the framebuffer every few seconds, skips
+  near-identical frames, and analyzes what's actually on screen.
+- **Flags revealing / explicit content** with two tiers — 🔴 *Revealing* (nude or
+  very revealing) and 🟡 *Suggestive* (swimwear / gym / borderline).
+- **Logs a full browsing trail** — a 🟢 *Browsing* record (app + site + time, no
+  image) on every context change, so a reviewer sees **everywhere** you went, not
+  just the frames that tripped the detector. Nothing hides in a gap.
+- **Notifies the partner** by email — 🔴 red = instant, ⚫ gone-dark = if the Mac
+  goes silent unexpectedly, 🟡 suggestive = a daily digest.
+- **Partner dashboard** — a private web app (live feed, history, filters, blurred
+  review images) that only the partner can log into.
+- **Tamper-evident** — a heartbeat means any secret shutdown, disable, or going
+  offline surfaces as a "monitoring went dark" alert.
+- **Self-cleaning** — all data auto-deletes after 7 days, locally and in the cloud.
+
+## Architecture
 
 ```
-Screen capture (every N seconds)
-      │
- Frame-change filter   ← skip near-identical frames (saves most of the work)
-      │
- Fast NSFW classifier  ← always-on first pass (NudeNet, runs in ms on CPU)
-      │  (ambiguous score?)
- Small vision model    ← arbitrates borderline frames only (Moondream, optional)
-      │  (flagged)
- Flag logger           ← appends to a local JSONL log
+        ┌──────────────────────── your Mac ────────────────────────┐
+        │  screen capture (mss) → frame-change filter               │
+        │        │                                                  │
+        │  NudeNet (fast NSFW)  +  CLIP zero-shot (head-to-head)     │  onnxruntime,
+        │        │                                                  │  no PyTorch
+        │  context-risk grading (app / site / window → keep + grade)│
+        │        │                                                  │
+        │  local log + live HTML report        menu-bar app (status)│
+        │        │                                                  │
+        │  uploader (offline queue, blurred reds)   heartbeat pulse │
+        └────────┼──────────────────────────────────┼──────────────┘
+                 ▼                                   ▼
+        ┌──────────────────────── Supabase ─────────────────────────┐
+        │  Postgres (flags, device_status)   private image bucket    │
+        │  row-level security → partner-only  pg_cron 7-day wipe      │
+        │  pg_net → Resend  ── red / gone-dark / digest emails ──▶ 📧 │
+        └────────────────────────────┬───────────────────────────────┘
+                                     ▼
+                    partner dashboard (static app on GitHub Pages)
+                    magic-link login · live feed · read-only
 ```
 
-The fast classifier is tuned **permissive** (flags generously). The optional
-small vision model arbitrates the borderline band so you aren't drowned in false
-positives. Nothing is sent anywhere in Phase 1 — flags are written to a local log
-you can review.
+## Detection
 
-## Roadmap
+- **NudeNet** (trained nudity detector) runs first as a fast explicit-content pass.
+- **CLIP zero-shot** runs on every frame and scores it **head-to-head**: the best
+  explicit prompt vs. the best suggestive prompt vs. the best *safe* prompt,
+  softmaxed against each other. Strong "safe anchor" prompts (clothed people,
+  animals, gameplay, text posts, UI, art) give neutral content a home so it isn't
+  forced onto a body/nudity hub — this is what keeps false positives low.
+- Small on-screen windows are caught by tiling the frame into an overlapping grid;
+  tiles must clear a higher bar than the full frame since they're noisier.
+- A **context-risk layer** (no AI, just rules) combines the CLIP score with *where*
+  it happened. Safe contexts (terminal, code editors, this tool's own report) are
+  suppressed; risky contexts (social media) are surfaced and graded up. This keeps
+  detection sensitive without flooding on safe screens.
 
-- **Phase 1 — Detection core** (this) — capture + tiered detection + local log.
-- **Phase 2 — Notifier** — email the accountability partner on a flag (flag only, no image).
-- **Phase 3 — Tamper-evidence** — LaunchDaemon (runs at boot/all users), watchdog
-  process, "monitoring went dark" alerts on stop / user-switch / permission-revoke.
-- **Phase 4 — Config lock** — config + uninstall gated behind a partner-held credential.
+Runs on **onnxruntime** (CLIP encoders exported to ONNX, verified identical to the
+PyTorch originals) — no PyTorch, tuned to fit an 8 GB Mac.
 
-## Setup
+## Cloud & partner layer
 
-Requires Python 3.12 (ML wheels don't all support 3.14 yet). From the project root:
+- **Supabase** — Postgres + Storage + Auth. The agent writes with a server-side
+  secret key; the partner dashboard can only **read**, and only the two
+  pre-registered accounts can log in (magic-link, public signups off). No one can
+  edit or delete the record from the dashboard side.
+- **Dashboard** (`docs/`) — a self-contained static page hosted on GitHub Pages.
+- **Email** — server-side `pg_cron` + `pg_net` → Resend, from a dedicated sending
+  subdomain (isolated from any existing email on the domain).
+- **Retention** — `pg_cron` wipes flag rows after 7 days; the agent wipes the cloud
+  images and its local copies on the same schedule.
+
+## Repo layout
+
+| Path | What |
+|------|------|
+| `eyeguard/` | the agent — capture, detector, risk, logger, uploader, menubar, context, retention, viewer |
+| `models/` | ONNX CLIP encoders + NudeNet (not committed) |
+| `docs/index.html` | the partner dashboard (GitHub Pages) |
+| `supabase/*.sql` | database schema, RLS lock, heartbeat, and alert jobs (run once in the SQL Editor) |
+| `config.yaml` | all thresholds, prompts, context rules, retention, cloud settings |
+| `*.sh` | setup / build / install scripts |
+
+## Setup (local agent)
+
+Requires Python 3.12 (not all ML wheels support newer yet).
 
 ```bash
-./setup.sh          # creates .venv, installs deps, downloads the classifier model
+./setup.sh            # create .venv, install deps, fetch models
+./install_agent.sh    # run now + at every login, as a menu-bar app
 ```
 
-Then grant **Screen Recording** permission the first time you run it
-(System Settings → Privacy & Security → Screen Recording → enable your terminal).
+Grant **Screen Recording** on first launch (System Settings → Privacy & Security →
+Screen Recording). The menu-bar eye shows status: 🟢 watching · 🟡 recent
+suggestive · 🔴 recent revealing · ⚠️ not watching. It relaunches if killed and has
+no quit button (stop it with `./uninstall_agent.sh`).
 
-## Run
+The cloud layer (Supabase project, Resend key, dashboard hosting, partner accounts)
+is configured separately — see the `supabase/` scripts and `config.yaml`.
 
-### In a terminal (for tuning)
+## Privacy & security
 
-```bash
-./run.sh                       # uses config.yaml defaults
-./run.sh --interval 3          # capture every 3 seconds
-./run.sh --once                # analyze a single frame and exit (good for testing)
-```
+- **Detection is 100% local** — frames are analyzed in memory. Only flags and small
+  review images (reds are **blurred**) sync to the partner.
+- **Partner data is locked down** — row-level security restricts reads to the two
+  partner accounts; the dashboard is read-only; the agent's key is server-side only.
+- **Everything auto-deletes after 7 days**, on the Mac and in the cloud.
 
-Flags are written to `flags.jsonl` in the project root. Tail it to watch:
+## Status
 
-```bash
-tail -f flags.jsonl
-```
-
-### As a menu bar app (no terminal)
-
-```bash
-./install_agent.sh             # starts now + at every login; shows a menu bar icon
-./uninstall_agent.sh           # stop and remove it
-```
-
-A 🟢 icon appears in the menu bar (🟡 = recent suggestive, 🔴 = recent explicit,
-⚠️ = not watching). The menu shows flag counts, the last flag (with the app/site
-it came from), and an "Open flag log" item. It relaunches automatically if killed.
-
-### Flag corroboration (what app/site was active)
-
-Every flag is stamped — locally, with no external service — with the frontmost
-**app**, the active **URL** (Safari/Chrome/Brave/Edge/Arc; Firefox doesn't expose
-URLs to automation, so it gets the **window title** instead), and the front
-**window title**. Granting Accessibility + Automation permission on first launch
-enables the URL/title fields; without them you still get the app name.
-
-## Privacy
-
-- All inference is local. No network calls in Phase 1.
-- Captured frames are held in memory only and discarded after analysis — they are
-  **not** written to disk unless you enable `save_flagged_frames` in `config.yaml`
-  (off by default; intended only for tuning).
-- **Data retention:** flag data (the JSONL log and any saved frames) is kept for
-  `logging.retention_days` (default **7**) and then automatically deleted. Pruning
-  runs at startup and hourly (menu bar app).
+- ✅ **Detection core** — capture, tiered NudeNet + CLIP, context-risk grading.
+- ✅ **Always-on** — menu-bar app + login agent, self-relaunching.
+- ✅ **Partner layer** — cloud sync, browsing trail, dashboard, email alerts.
+- ✅ **Tamper-evidence** — heartbeat + gone-dark alerts (sleep/shutdown-aware).
+- ⬜ **Config lock (Phase 4)** — partner-held credential to gate stopping /
+  uninstalling the agent, plus log-tamper detection.

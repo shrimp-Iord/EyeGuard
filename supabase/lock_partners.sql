@@ -7,14 +7,14 @@ drop policy if exists "partner reads flags" on public.flags;
 create policy "partner reads flags" on public.flags
   for select to authenticated using (
     auth.uid() in (
-      '0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',  -- partner1@example.com
-      '1818ac68-7ecf-4e39-a758-8526e496247d'   -- partner2@example.com
+      '0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',  -- partner 1 (father)
+      '1818ac68-7ecf-4e39-a758-8526e496247d'   -- partner 2 (spouse)
     ));
 
 drop policy if exists "partner reads frames" on storage.objects;
 create policy "partner reads frames" on storage.objects
   for select to authenticated using (
     bucket_id = 'frames' and auth.uid() in (
-      '0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',  -- partner1@example.com
-      '1818ac68-7ecf-4e39-a758-8526e496247d'   -- partner2@example.com
+      '0e02aa87-1cd5-4bb6-a263-f51d4e2642b6',  -- partner 1 (father)
+      '1818ac68-7ecf-4e39-a758-8526e496247d'   -- partner 2 (spouse)
     ));
