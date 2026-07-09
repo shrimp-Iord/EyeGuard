@@ -8,7 +8,7 @@
 --   3. Then run THIS file.
 --
 -- Recipients: father + spouse. From: alerts@alerts.jjpetwasteservices.com.
--- Timestamps use America/Denver — change EG_TZ below if that's wrong.
+-- Timestamps use America/New_York (EST/EDT, DST-aware).
 
 create extension if not exists pg_net;
 
@@ -40,7 +40,7 @@ declare loc text; whenn text; kind text;
 begin
   loc := coalesce(NEW.app, 'an app')
        || coalesce(' — ' || nullif(coalesce(NEW.url, NEW.window_title), ''), '');
-  whenn := to_char(NEW.flagged_at at time zone 'America/Denver',
+  whenn := to_char(NEW.flagged_at at time zone 'America/New_York',
                    'Mon DD, HH12:MI AM');
   kind := case when NEW.is_nudity then 'Explicit nudity' else 'Very revealing content' end;
   perform public.eg_send_email(
@@ -97,6 +97,6 @@ end $$;
 
 select cron.unschedule('eyeguard-digest')
   where exists (select 1 from cron.job where jobname = 'eyeguard-digest');
--- 13:00 UTC daily (~7am Mountain). Adjust the hour to taste.
-select cron.schedule('eyeguard-digest', '0 13 * * *',
+-- 12:00 UTC daily (~8am EDT / 7am EST). Adjust the hour to taste.
+select cron.schedule('eyeguard-digest', '0 12 * * *',
   $$ select public.eg_daily_digest(); $$);
