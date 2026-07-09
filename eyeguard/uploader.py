@@ -44,6 +44,7 @@ class SupabaseUploader:
         self.pending_path = Path(pending_path)
         self.retry_seconds = retry_seconds
         self.heartbeat = heartbeat
+        self._suspended = False  # True between sleep/power-off and wake
         self._lock = threading.Lock()          # guards the pending file
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -119,11 +120,31 @@ class SupabaseUploader:
                 pass  # never let the uploader crash the app
             if self.heartbeat:
                 try:
-                    self.send_heartbeat("alive")
+                    self.send_heartbeat(
+                        "clean_shutdown" if self._suspended else "alive")
                 except Exception:
                     pass  # a missed pulse is exactly what "gone dark" detects
             self._wake.wait(self.retry_seconds)
             self._wake.clear()
+
+    def suspend(self):
+        """Mac going to sleep / shutting down normally: beacon a clean state so
+        the gone-dark watchdog stays quiet, and keep pulses clean until resumed.
+        (A MANUAL stop sends no beacon at all, so disabling the monitor still
+        alerts — the clean beacon only fires on real sleep/power-off events.)"""
+        self._suspended = True
+        try:
+            self.send_heartbeat("clean_shutdown")
+        except Exception:
+            pass
+
+    def resume(self):
+        """Mac woke: back to alive (also clears the gone-dark `alerted` flag)."""
+        self._suspended = False
+        try:
+            self.send_heartbeat("alive")
+        except Exception:
+            pass
 
     def send_heartbeat(self, status: str = "alive"):
         """Upsert the single device_status row. status='alive' also clears the

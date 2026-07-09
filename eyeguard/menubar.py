@@ -112,6 +112,8 @@ class EyeGuardApp(rumps.App):
         rsec = int(self.cfg.get("logging", {}).get("report_refresh_seconds", 10))
         self._report_timer = rumps.Timer(self._regen_report, rsec)
         self._report_timer.start()
+        # Sleep/wake/shutdown beacons so normal power events don't false-alarm.
+        self._register_power_observers()
 
     # ---- UI (main thread) ---------------------------------------------------
 
@@ -209,6 +211,41 @@ class EyeGuardApp(rumps.App):
             return
         import subprocess
         subprocess.run(["open", str(out)])  # opens the live report in the browser
+
+    # ---- power events (sleep / wake / shutdown) -----------------------------
+
+    def _register_power_observers(self):
+        """Beacon a clean state on sleep + power-off (so a normal overnight
+        sleep or shutdown does NOT trigger a gone-dark alert), and go back to
+        alive on wake. A manual stop (launchctl unload) sends SIGTERM with NO
+        power-off notification, so it sends no clean beacon -> the monitor going
+        dark still alerts. That's the tamper-evidence we want."""
+        try:
+            from AppKit import NSWorkspace
+            from Foundation import NSOperationQueue
+            nc = NSWorkspace.sharedWorkspace().notificationCenter()
+            q = NSOperationQueue.mainQueue()
+            nc.addObserverForName_object_queue_usingBlock_(
+                "NSWorkspaceWillSleepNotification", None, q,
+                lambda n: self._power_event("suspend", "sleep"))
+            nc.addObserverForName_object_queue_usingBlock_(
+                "NSWorkspaceWillPowerOffNotification", None, q,
+                lambda n: self._power_event("suspend", "power-off"))
+            nc.addObserverForName_object_queue_usingBlock_(
+                "NSWorkspaceDidWakeNotification", None, q,
+                lambda n: self._power_event("resume", "wake"))
+        except Exception as e:
+            print(f"[power] observer setup failed: {e}", flush=True)
+
+    def _power_event(self, action: str, name: str):
+        up = self._uploader
+        if up is None:
+            return
+        try:
+            up.suspend() if action == "suspend" else up.resume()
+            print(f"[power] {name} -> {action}", flush=True)
+        except Exception:
+            pass
 
     # ---- cloud sync ---------------------------------------------------------
 
