@@ -1,0 +1,19 @@
+# Core detection pipeline (Phase 1)
+mss>=9.0            # fast screen-framebuffer capture
+Pillow>=10.0       # image handling
+numpy>=1.26        # frame diffing / array conversion
+PyYAML>=6.0        # config
+
+# Stage 1: fast NSFW region detector (pulls onnxruntime + opencv headless)
+nudenet>=3.4
+
+# Stage 2 arbiter: CLIP zero-shot scorer, run on onnxruntime (the SAME runtime
+# NudeNet uses) — NO PyTorch. The CLIP encoders are pre-exported to ONNX in
+# models/ (see tools/export_clip_onnx.py). transformers is kept ONLY for the
+# CLIP image processor + tokenizer (works without torch); pinned <5 for the
+# tested tokenizer/processor behavior. NO torch / torchvision needed at runtime.
+transformers>=4.44,<5
+
+# Menu bar app (pulls in pyobjc). Used by eyeguard.menubar / install_agent.sh.
+rumps>=0.4
+pyobjc-framework-Quartz>=10  # window titles via CGWindowList (Screen Recording)

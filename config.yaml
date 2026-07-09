@@ -1,0 +1,346 @@
+# EyeGuard configuration (Phase 1)
+
+capture:
+  # Seconds between screen captures. Lower = more thorough, more CPU.
+  interval_seconds: 4
+  # If a frame differs from the previous one by less than this fraction of pixels,
+  # skip analysis (nothing changed worth looking at). 0.02 = 2% of pixels changed.
+  change_threshold: 0.02
+  # Downscale captured frames to this max width before analysis (speed). Aspect kept.
+  max_width: 1280
+  # Which displays to capture: "all" or a 1-based index like 1.
+  displays: all
+
+detection:
+  # NudeNet fast-path: if an explicit-exposure region scores >= this, FLAG the
+  # frame immediately (skip CLIP). Everything else goes to the CLIP arbiter.
+  flag_threshold: 0.50
+
+  # Actual exposure that should hard-flag without waiting for CLIP.
+  explicit_labels:
+    - FEMALE_BREAST_EXPOSED
+    - FEMALE_GENITALIA_EXPOSED
+    # MALE_GENITALIA_EXPOSED intentionally omitted — male nudity is not flagged.
+    - BUTTOCKS_EXPOSED
+    - ANUS_EXPOSED
+
+arbiter:
+  # Second-pass CLIP zero-shot scorer. Lightweight (~0.5GB, ~90ms/frame) — fits
+  # 8GB comfortably. Scores each frame (and tiles) against two tiers of concepts:
+  #   explicit_prompts  -> RED   (FLAGGED): nude / explicit / exposed
+  #   suggestive_prompts-> YELLOW (ALERT):  shirtless / swimsuit / athletic / etc.
+  enabled: true
+  # model_id: openai/clip-vit-base-patch32   # override the CLIP model if desired
+
+  # Split each frame into an NxN grid of overlapping tiles (plus the full frame)
+  # and take the most severe tier ANY tile reaches. Catches small on-screen
+  # windows the full-frame view drowns out. Finer grid = smaller items isolated
+  # (a <10% item fills more of a tile so it wins its tile's head-to-head), at the
+  # cost of more passes. 4 = 4x4 grid (~17 passes, ~150ms). Try 5 for tiny items.
+  tile_grid: 4
+  # Tiles are zoomed/noisier, so they must clear (threshold + tile_penalty) to
+  # flag. Higher = fewer tile-driven false positives (e.g. a clothed torso
+  # closeup reading as nudity), but small real windows need to be clearer.
+  tile_penalty: 0.12
+  # Minimum grayscale std for a tile/frame to be scored at all. Below this it's
+  # blank/near-uniform (empty page, solid background) and is treated as SAFE —
+  # stops blank screens from flagging "tight revealing clothing" on empty pixels.
+  # Raise if blank-ish pages still flag; lower if real sparse content is missed.
+  min_content_std: 12.0
+
+  # Scoring is a 3-way head-to-head: P(best explicit prompt) vs P(best suggestive)
+  # vs P(best safe), softmaxed against each other per crop/tile.
+  # RED: P(explicit) >= this -> FLAGGED. Set high so RED needs a CONFIDENT
+  # explicit win; anything where explicit only narrowly beats suggestive falls to
+  # YELLOW instead (still flagged, just not labeled explicit). Genuine nudity
+  # scores ~0.9+ so it still goes red; ambiguous body content stays yellow.
+  red_threshold: 0.60
+  # YELLOW: P(not safe) = P(explicit)+P(suggestive) >= this (and not red) ->
+  # ALERT. Lower = more sensitive to "barely dressed"; raise if normal clothed
+  # people get flagged.
+  yellow_threshold: 0.46
+
+  # RED — explicit / nude / exposed. CONCRETE VISUAL prompts only: each describes
+  # what is literally visible (bare / exposed / naked skin). Avoid abstract
+  # concept-phrases like "hardcore pornography" — those act as hubs and wrongly
+  # escalate ambiguous suggestive frames to red. Keep this list specific.
+  explicit_prompts:
+    - "a completely naked woman with no clothes"
+    - "a nude woman showing bare skin"
+    - "a topless woman with bare exposed breasts"
+    - "bare exposed female breasts and nipples"
+    - "exposed female genitals"
+    - "a woman's bare naked buttocks"
+    - "a woman in only underwear or lingerie"
+    - "a closeup of a woman's bare exposed private parts"
+
+  # YELLOW — suggestive but clothed: shirtless / swimwear / athletic / revealing.
+  suggestive_prompts:
+    - "a woman in a bikini or swimsuit"
+    - "a woman in a one-piece swimsuit"
+    - "a woman at the beach or pool in swimwear"
+    - "a person in tight revealing clothing"
+    - "a woman in tight yoga pants or leggings"
+    - "a woman wearing gym or athletic clothing"
+    - "a woman in a sports bra"
+    - "a closeup of a woman's buttocks"
+    - "a woman's butt in tight pants"
+    - "a woman bending over"
+    - "a woman in a crop top showing her midriff"
+    - "a woman in a short skirt or short shorts"
+    - "a woman posing suggestively"
+    - "a woman in a low-cut top showing deep cleavage"
+    - "a woman in a skin-tight dress"
+    - "a woman wearing form-fitting clothing that shows her body shape"
+    - "a woman in a tight top that hugs her chest"
+    - "a curvy woman showing her figure"
+    - "a fitness model showing her body"
+
+  # Neutral concepts that should NOT flag. Extra nature/outdoor entries pull
+  # landscape wallpapers away from "shirtless person" false positives.
+  safe_prompts:
+    # MALE bodies — intentionally SAFE. This is a male user's accountability tool,
+    # so shirtless / gym / muscular / even nude MEN should never alert.
+    - "a shirtless muscular man"
+    - "a man working out or lifting weights at the gym"
+    - "a man's bare muscular chest and abs"
+    - "a male bodybuilder or shirtless male athlete"
+    - "a man in a tank top with bare arms"
+    - "a naked or nude man"
+    # normal CLOTHED people — strong buckets so ordinary photos of women/men
+    # don't leak into the suggestive prompts. (This is the main false-positive fix.)
+    - "a woman in normal everyday clothing"
+    - "a fully clothed woman"
+    - "a woman wearing a t-shirt or sweater"
+    - "a man in normal clothing"
+    - "a person in modest everyday clothing fully covered"
+    - "a headshot of a person's face"
+    - "a closeup of a person's face"
+    - "a portrait photo of a clothed person"
+    - "a selfie of a fully clothed person"
+    - "a group of people posing for a photo"
+    # nature / scenery (pulls landscape wallpapers away from "shirtless person")
+    - "a mountain landscape"
+    - "a forest or trees"
+    - "a nature photograph of scenery"
+    - "an outdoor landscape with no people"
+    # neutral ANCHORS — common content that must have a safe home so it doesn't
+    # fall onto an explicit "hub" prompt. Expand these as you hit false positives.
+    - "a cat, dog, or other animal"
+    - "a collage or grid of small pictures"
+    - "a politician or man in a suit giving a speech"
+    - "a plate of food or a meal"
+    - "a car, building, or street scene"
+    - "a meme with text"
+    - "a logo, icon, or graphic design"
+    - "a sports game or athlete playing sports"
+    # VIDEO GAMES — gameplay content has no body in it but CLIP misreads game
+    # textures/HUDs as nudity without these. (Fixes gaming-stream false positives.)
+    - "a screenshot of a video game"
+    - "a video game character or game scene"
+    - "first person video game gameplay footage"
+    - "a horror or action video game"
+    - "a cartoon or animated game scene"
+    - "a video game user interface with a health bar and score"
+    # specific game genres that misread as bodies (cars/arena/sports/esports)
+    - "a rocket league car soccer video game"
+    - "cars driving in a blue video game arena"
+    - "a racing or driving video game"
+    - "a sports video game like soccer or football"
+    - "an esports tournament gameplay broadcast"
+    # anime / IRL streams
+    - "an anime or manga character scene"
+    - "a video of people on a grassy field outdoors"
+    # underwater / wildlife / nature docs (these misread as skin/nudity)
+    - "an underwater ocean scene with fish or sea turtles"
+    - "a scuba diver or snorkeler underwater in the sea"
+    - "a coral reef or sandy ocean floor"
+    - "a lizard, chameleon, snake, or reptile closeup"
+    - "a nature documentary of wildlife or animals"
+    - "a beach, sand, or rocky shoreline"
+    # more specific games that misread
+    - "a minecraft blocky sandbox video game"
+    - "a grand theft auto GTA open-world video game"
+    - "a first-person shooter game with guns and a HUD"
+    # streamers / webcams (clothed person talking to camera)
+    - "a person wearing a shirt talking to a webcam"
+    - "a video game streamer with a small facecam"
+    - "a man with a beard talking to the camera"
+    # text-heavy windows (stops the readable log itself from flagging)
+    - "a text document or log file full of words"
+    - "the macOS Activity Monitor app with cpu and memory graphs"
+    # GENERIC INTERNET / COMPUTER USE — common categories that otherwise have no
+    # safe home and fall onto body/nudity hubs. Safe to add freely: scoring uses
+    # the single best safe prompt (max), so more anchors never dilute, and tiling
+    # still isolates any real body content into its own tile.
+    - "an anime or cartoon illustration"
+    - "a drawing, painting, or piece of digital artwork"
+    - "an online shopping or product listing page"
+    - "an email inbox or chat messaging app"
+    - "a news website or article with text"
+    - "a YouTube or video player interface"
+    - "a map or navigation app"
+    - "a spreadsheet, table, or data dashboard"
+    - "a web search results page"
+    - "a calendar, notes, or to-do list app"
+    - "a comic book or manga page"
+    - "an infographic, diagram, or flowchart"
+    - "a music streaming app or album cover"
+    - "a weather forecast screen"
+    - "a stock market or cryptocurrency price chart"
+    - "a travel photo or famous landmark"
+    - "an encyclopedia or wiki reference page"
+    - "a settings, preferences, or control panel window"
+    - "a person giving a presentation with slides"
+    - "a social media profile or feed of text posts"
+    - "a forum or discussion thread"
+    - "a file browser or folder of icons"
+    - "a login or sign-up form"
+    - "a calculator or productivity tool"
+    # screens / objects
+    - "a screenshot of text or a document"
+    - "a user interface or app screen"
+    - "an everyday object"
+    - "a chart or diagram"
+    - "a screenshot of code or a terminal"
+    # ART / SCULPTURE / HORROR-GAME aesthetics — painterly games (e.g. Layers of
+    # Fear) and classical art read as bodies on zoomed tiles. (Real nudity still
+    # red-flags: the explicit "bare exposed" prompts beat these on actual nudity.)
+    - "a classical renaissance or baroque oil painting in an ornate frame"
+    - "a marble sculpture or carved statue"
+    - "an old painting of clothed figures on a wall"
+    - "a dark dimly lit gothic horror room"
+    - "a creepy abandoned haunted house interior"
+    - "a museum or art gallery with framed paintings"
+    # cloth-draped shapes — a very common horror-game prop that reads as a body
+    - "furniture or objects covered with draped cloth or white sheets"
+    - "a rumpled beige sheet, blanket, or tarp draped over a shape"
+    - "crumpled fabric or cloth folds in a dim room"
+    # aged paper / parchment — skin-toned, reads as bare skin on tight crops
+    - "a piece of aged parchment, paper, or an old letter"
+    - "a closeup of weathered tan paper, parchment, or canvas"
+    - "an old handwritten note, document, or scroll"
+    # MESSAGING — chat windows and shared contact photos
+    - "a chat conversation with text message bubbles"
+    - "a contact photo or profile picture in a messaging app"
+    - "a casual photo of a fully clothed person shared in a text"
+    # TEXT POSTS / infographics — social-media health/anatomy posts ("facts about
+    # the vagina", "penis facts") were RED-flagged as nudity off the topic + skin-
+    # toned background. These anchors pull text posts to safe.
+    - "a wall of text on a colored background"
+    - "a social media post with a paragraph of text"
+    - "a health or anatomy infographic with text"
+    - "a sex education or health article with writing"
+    - "a dark social media post with white text"
+    - "a short video reel with a text caption overlay"
+    - "a screenshot of a facebook or instagram post"
+    # blank / empty (backup to the min_content_std content gate)
+    - "a blank screen or solid color background"
+    - "an empty web page"
+
+ignore:
+  # Don't flag when the active window/url/app contains any of these. Stops
+  # EyeGuard from flagging its OWN report/log (which list suggestive content as
+  # text and would self-flag when viewed). Add app names here to whitelist them.
+  window_title_contains:
+    - "EyeGuard Activity Report"
+    - "flags_report"
+    - "flags_readable"
+    # the macOS login / lock screen — you can't browse anything there, and its
+    # avatar/wallpaper false-flags as "a woman in tight clothing"
+    - "loginwindow"
+
+# Context-aware risk layer (no AI): combine the CLIP grade with WHERE it happened
+# to decide whether a flag is worth keeping and how likely it is real. Lets us
+# stay sensitive without flooding — suppress on safe contexts, push through (with
+# a grade) on risky ones. Matching is case-insensitive substring vs app+title+url.
+context_risk:
+  enabled: true
+  # RED (likely nudity) is never suppressed, so real exposure is never hidden
+  # even on a "safe" context. Set false to allow suppressing RED too.
+  red_always_through: true
+  # Confidence a YELLOW needs to survive a LOW-risk context (e.g. gameplay).
+  low_risk_min_confidence: 0.85
+  # Confidence a CLIP RED needs to survive a LOW-risk context. Higher than yellow
+  # because game/nature textures misread as nudity at 0.7-0.9 on YouTube. NudeNet
+  # reds (real exposure detected) bypass this and always surface.
+  low_risk_red_min_confidence: 0.93
+
+  # SUPPRESS — drop flags here (suggestive content effectively can't occur).
+  suppress:
+    - "loginwindow"
+    - "Terminal"
+    - "iTerm"
+    - "Visual Studio Code"
+    - "Code"            # VS Code window titles
+    - "Xcode"
+    - "Activity Monitor"
+    - "System Settings"
+    - "Claude"          # AI assistant / design+dev work
+
+  # LOW RISK — discount (keep YELLOW only if very confident, >= low_risk_min_
+  # confidence). RED still always surfaces, so no blind spot for real nudity.
+  low_risk:
+    # personal apps — your own photos / chats / file previews; nothing there
+    # unless EyeGuard is really sure
+    - "Photos"
+    - "Messages"
+    - "Preview"
+    - "Mail"
+    - "Notes"
+    # gameplay videos
+    - "gameplay"
+    - "playthrough"
+    - "full game"
+    - "let's play"
+    - "walkthrough"
+    - "speedrun"
+    - "horror game"
+    - "pewdiepie"
+    - "markiplier"
+    - "jacksepticeye"
+    # YouTube broadly — the user's video diet is mostly gaming/anime/IRL, which
+    # CLIP misreads. Discount it (yellow only surfaces if very confident); RED
+    # nudity still always surfaces here. Plus common esports/game terms.
+    - "youtube"
+    - "rlcs"
+    - "esports"
+    - "tournament"
+    - "rocket league"
+    - "valorant"
+    - "fortnite"
+    - "minecraft"
+    - "ishowspeed"
+
+  # HIGH RISK — real chance of suggestive content; keep and grade up.
+  high_risk:
+    - "instagram"
+    - "twitter"
+    - "x.com"
+    - "reddit"
+    - "facebook"
+    - "tiktok"
+    - "tumblr"
+    - "snapchat"
+    - "onlyfans"
+    - "imgur"
+    - "pinterest"
+
+logging:
+  flag_log: flags.jsonl
+  # Permanently save each flagged frame to disk for partner review (the report
+  # shows them as thumbnails). Local only; auto-deleted after retention_days.
+  save_flagged_frames: true
+  # Blur RED-tier frames (nudity / very revealing) before saving, so a partner
+  # can confirm a flag without being exposed to the content. Yellow saved clear.
+  blur_red_frames: true
+  # Blur amount: image_width / this number. HIGHER = lighter / more visible.
+  # (was unintelligible at 24; 50 = moderate, ~70 = light, ~35 = heavy.)
+  blur_strength: 75
+  flagged_frames_dir: flagged_frames
+  # The "View activity report" is a LIVE feed — the browser auto-refreshes and
+  # the agent regenerates the HTML this often (seconds).
+  report_refresh_seconds: 10
+  # Keep flag data this many days, then auto-delete it. Pruning runs at startup
+  # and hourly (menu bar app) / at startup (terminal).
+  retention_days: 7

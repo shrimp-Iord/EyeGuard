@@ -1,0 +1,27 @@
+# --- SECRETS — never commit ---
+.supabase_secret
+*secret*
+*.key
+*.pem
+
+# --- runtime data (local + regenerated) ---
+flags.jsonl
+flags_report.html
+flags_readable.txt
+flagged_frames/
+logs/
+.eyeguard.lock
+
+# --- heavy / generated artifacts ---
+.venv/
+models/
+build_bundle/
+EyeGuard.app/
+EyeGuard-bundled.app/
+assets/_tmp/
+__pycache__/
+*.pyc
+*.pyo
+
+# --- macOS ---
+.DS_Store
