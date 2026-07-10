@@ -1,8 +1,10 @@
-"""Render the JSONL flag log into a human-readable text file.
+"""Render the JSONL flag log into a human-readable text file and a branded
+live HTML report.
 
-Keeps flags.jsonl as the single machine-readable source of truth (retention
-operates on it) and generates a readable view on demand for the menu bar's
-"Open flag log".
+The HTML report mirrors the partner dashboard (docs/index.html) so the local
+view and the remote view look and behave the same: a full-width top bar, stat
+cards, Revealing/Suggestive/Browsing filters, and a responsive card grid that
+fills a landscape desktop.
 """
 
 from __future__ import annotations
@@ -73,12 +75,12 @@ def write_readable(flag_log: str | Path, out_path: str | Path,
 
 
 # ---------------------------------------------------------------------------
-# Branded HTML report — for a non-technical accountability partner to skim.
+# Branded HTML report — mirrors the partner dashboard.
 # ---------------------------------------------------------------------------
 
 # The eye logo (white), inlined so the report is a single self-contained file.
 _EYE_SVG = (
-    '<svg viewBox="0 0 100 100" width="34" height="34" fill="none">'
+    '<svg viewBox="0 0 100 100" width="30" height="30" fill="none">'
     '<path stroke="#fff" stroke-width="2.5" d="M5.5,50 C25.5,21 74.5,21 94.5,50 '
     'C74.5,79 25.5,79 5.5,50 Z"/><path fill="#fff" fill-rule="evenodd" '
     'd="M12.5,50 C31,28 69,28 87.5,50 C69,72 31,72 12.5,50 Z M45.5,49 A5.5,5.5 '
@@ -130,7 +132,7 @@ def _where(rec: dict) -> str:
 
 
 def _thumb(rec: dict, report_dir: Path) -> str:
-    """A small thumbnail <img> if the flagged frame was saved to disk."""
+    """A thumbnail <img> if the flagged frame was saved to disk."""
     p = rec.get("saved_frame")
     if not p:
         return ""
@@ -141,6 +143,34 @@ def _thumb(rec: dict, report_dir: Path) -> str:
         return ""
     # file:// URL so it loads regardless of how the report was opened.
     return f'<img class="thumb" src="file://{_esc(str(path))}" loading="lazy">'
+
+
+def _card(rec: dict, dt: datetime, report_dir: Path) -> str:
+    """One feed card — matches the partner dashboard's markup."""
+    time = dt.strftime("%-I:%M %p")
+    verdict = rec.get("verdict", "")
+    # GREEN: a clean browsing record — no image, just where + when.
+    if verdict == "clear":
+        return (f'<div class="card green"><div class="body"><div class="rtop">'
+                f'<span class="time">{time}</span>'
+                f'<span class="pill green">Browsing</span></div>'
+                f'<div class="where">{_where(rec)}</div></div></div>')
+    red = verdict == "flagged"
+    sev = "red" if red else "yellow"
+    if red:
+        sev_txt = ("Nudity" if (rec.get("reason") or "").startswith("nudenet")
+                   else "Revealing")
+    else:
+        sev_txt = "Suggestive"
+    grade = rec.get("grade") or ""
+    gcls = {"Likely": "g-hi", "Possible": "g-mid", "Borderline": "g-lo"}.get(grade, "")
+    grade_html = f'<span class="grade {gcls}">{grade}</span>' if grade else ""
+    return (f'<div class="card {sev}">{_thumb(rec, report_dir)}'
+            f'<div class="body"><div class="rtop">'
+            f'<span class="time">{time}</span>'
+            f'<span class="pill {sev}">{sev_txt}</span>{grade_html}</div>'
+            f'<div class="where">{_where(rec)}</div>'
+            f'<div class="what">{_what(rec)}</div></div></div>')
 
 
 def write_html_report(flag_log: str | Path, out_path: str | Path,
@@ -160,64 +190,42 @@ def write_html_report(flag_log: str | Path, out_path: str | Path,
     reds = sum(1 for r in records if r.get("verdict") == "flagged")
     yellows = sum(1 for r in records if r.get("verdict") == "alert")
     greens = sum(1 for r in records if r.get("verdict") == "clear")
-    now = datetime.now()
 
-    # Group rows by local day.
-    rows_by_day: dict[str, list[str]] = {}
+    # "Last activity" — the newest record of any kind.
+    last_seen = ""
+    for r in records:
+        dt = _local(r)
+        if dt:
+            last_seen = "Last activity " + dt.strftime("%b %-d, %-I:%M %p")
+            break
+
+    # Group cards by local day.
+    cards_by_day: dict[str, list[str]] = {}
     order: list[str] = []
     for r in records:
         dt = _local(r)
         if dt is None:
             continue
         day = dt.strftime("%A, %B %-d")
-        if day not in rows_by_day:
-            rows_by_day[day] = []
+        if day not in cards_by_day:
+            cards_by_day[day] = []
             order.append(day)
-        verdict = r.get("verdict", "")
-        # GREEN: a clean browsing record — no image, just where + when. This is
-        # the full activity trail so a reviewer can see everywhere the user went,
-        # not only the frames the detector flagged.
-        if verdict == "clear":
-            rows_by_day[day].append(
-                f'<div class="row green">'
-                f'<div class="meta"><div class="rtop">'
-                f'<span class="time">{dt.strftime("%-I:%M %p")}</span>'
-                f'<span class="pill green">Browsing</span>'
-                f'<span class="where">{_where(r)}</span></div></div></div>')
-            continue
-        sev_cls = "red" if verdict == "flagged" else "yellow"
-        if verdict == "flagged":
-            sev_txt = ("Nudity" if (r.get("reason") or "").startswith("nudenet")
-                       else "Revealing")
-        else:
-            sev_txt = "Suggestive"
-        grade = r.get("grade") or ""
-        gcls = {"Likely": "g-hi", "Possible": "g-mid",
-                "Borderline": "g-lo"}.get(grade, "")
-        grade_html = (f'<span class="grade {gcls}">{grade}</span>'
-                      if grade else "")
-        rows_by_day[day].append(
-            f'<div class="row {sev_cls}">'
-            f'{_thumb(r, out.parent)}'
-            f'<div class="meta">'
-            f'<div class="rtop"><span class="time">{dt.strftime("%-I:%M %p")}</span>'
-            f'<span class="pill {sev_cls}">{sev_txt}</span>{grade_html}'
-            f'<span class="where">{_where(r)}</span></div>'
-            f'<div class="what">{_what(r)}</div></div>'
-            f'</div>')
+        cards_by_day[day].append(_card(r, dt, out.parent))
 
     sections = ""
     for day in order:
         sections += (f'<section class="day"><h2>{day}'
-                     f'<span class="daycount">{len(rows_by_day[day])}</span></h2>'
-                     + "".join(rows_by_day[day]) + "</section>")
+                     f'<span class="daycount">{len(cards_by_day[day])}</span></h2>'
+                     f'<div class="grid">{"".join(cards_by_day[day])}</div>'
+                     f'</section>')
     if not records:
-        sections = ('<div class="empty">NO ACTIVITY FLAGGED — ALL CLEAR ✓</div>')
+        sections = '<div class="empty">NO ACTIVITY YET — ALL CLEAR ✓</div>'
 
     refresh_tag = (f'<meta http-equiv="refresh" content="{refresh}">'
                    if refresh and refresh > 0 else "")
     live_tag = ('<span class="live"><span class="dot"></span>Live</span>'
                 if refresh and refresh > 0 else "")
+
     html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">{refresh_tag}
 <title>EyeGuard Activity Report</title><style>
@@ -225,96 +233,121 @@ def write_html_report(flag_log: str | Path, out_path: str | Path,
 --teal:#1b4b63;--red:#e5403a;--yellow:#f2a200;--green:#2fb85c;
 --head:"Futura","Jost","Century Gothic","Trebuchet MS",sans-serif;
 --body:"Helvetica Neue",Helvetica,Arial,sans-serif;}}
-*{{box-sizing:border-box;}}body{{margin:0;background:var(--bg);color:var(--ink);
-font:15px/1.45 var(--body);}}
-.wrap{{max-width:780px;margin:0 auto;padding:0 14px 48px;}}
-header{{background:linear-gradient(135deg,#1b4b63,#08161f);padding:24px 22px;
-border:1px solid var(--line);border-top:none;display:flex;align-items:center;gap:14px;}}
-header h1{{font-family:var(--head);font-size:22px;margin:0;font-weight:700;
+*{{box-sizing:border-box;}}html,body{{margin:0;}}
+body{{background:var(--bg);color:var(--ink);font:15px/1.45 var(--body);min-height:100vh;}}
+
+/* top bar (full width) */
+.topbar{{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;
+padding:14px 28px;background:linear-gradient(135deg,#1b4b63,#08161f);
+border-bottom:1px solid var(--line);}}
+.topbar h1{{font-family:var(--head);font-size:19px;margin:0;font-weight:700;
+text-transform:uppercase;letter-spacing:.07em;}}
+.topbar .sub{{color:#a9c2cf;font-size:11px;text-transform:uppercase;letter-spacing:.06em;}}
+.spacer{{flex:1;}}
+.live{{display:inline-flex;align-items:center;gap:7px;color:var(--green);font-size:11px;
 text-transform:uppercase;letter-spacing:.06em;}}
-header .sub{{color:#a9c2cf;font-size:12px;margin-top:3px;text-transform:uppercase;
-letter-spacing:.05em;}}
-.cards{{display:flex;gap:10px;margin:16px 0 6px;}}
-.card{{flex:1;background:var(--card);border:1px solid var(--line);
-border-top:3px solid var(--line);padding:16px;}}
-.card .n{{font-family:var(--head);font-size:32px;font-weight:700;line-height:1;
-letter-spacing:.02em;}}
-.card .l{{font-size:11px;color:var(--muted);margin-top:6px;text-transform:uppercase;
+.dot{{width:8px;height:8px;border-radius:50%;background:var(--green);
+animation:pulse 1.4s infinite;}}
+@keyframes pulse{{0%,100%{{opacity:1;}}50%{{opacity:.25;}}}}
+.seen{{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;}}
+
+/* controls */
+.controls{{display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+max-width:1680px;margin:0 auto;padding:18px 28px 4px;}}
+.stats{{display:flex;gap:12px;}}
+.stat{{background:var(--card);border:1px solid var(--line);border-top:3px solid var(--line);
+padding:12px 20px;min-width:104px;}}
+.stat .n{{font-family:var(--head);font-size:26px;font-weight:700;line-height:1;}}
+.stat .l{{font-size:10.5px;color:var(--muted);margin-top:5px;text-transform:uppercase;
 letter-spacing:.09em;font-weight:600;}}
-.card.red{{border-top-color:var(--red);}}.card.red .n{{color:var(--red);}}
-.card.yellow{{border-top-color:var(--yellow);}}.card.yellow .n{{color:var(--yellow);}}
-.card.green{{border-top-color:var(--green);}}.card.green .n{{color:var(--green);}}
-.filters{{display:flex;gap:8px;margin:14px 0 4px;}}
+.stat.red{{border-top-color:var(--red);}}.stat.red .n{{color:var(--red);}}
+.stat.yellow{{border-top-color:var(--yellow);}}.stat.yellow .n{{color:var(--yellow);}}
+.stat.green{{border-top-color:var(--green);}}.stat.green .n{{color:var(--green);}}
+.filters{{display:flex;gap:8px;margin-left:auto;}}
 .fbtn{{font-family:var(--head);font-size:12px;font-weight:700;text-transform:uppercase;
-letter-spacing:.08em;color:var(--muted);background:var(--card);
-border:1px solid var(--line);padding:9px 16px;cursor:pointer;}}
+letter-spacing:.07em;color:var(--muted);background:var(--card);
+border:1px solid var(--line);padding:10px 18px;cursor:pointer;}}
 .fbtn.active{{color:var(--ink);border-color:#46c;background:#1d2630;}}
 .fbtn[data-sev="red"].active{{border-color:var(--red);color:#ff8a85;}}
 .fbtn[data-sev="yellow"].active{{border-color:var(--yellow);color:#ffc24d;}}
 .fbtn[data-sev="green"].active{{border-color:var(--green);color:#5fd98a;}}
-h2{{font-family:var(--head);font-size:13px;color:var(--muted);text-transform:uppercase;
-letter-spacing:.1em;margin:24px 0 8px;display:flex;align-items:center;gap:8px;
-font-weight:700;}}
-.daycount{{background:var(--card);border:1px solid var(--line);
-padding:2px 9px;font-size:11px;color:var(--muted);}}
-.row{{display:flex;align-items:center;gap:12px;background:var(--card);
-border:1px solid var(--line);border-left:4px solid var(--line);
-padding:10px 14px;margin-bottom:6px;}}
-.row.red{{border-left-color:var(--red);}}.row.yellow{{border-left-color:var(--yellow);}}
-.row.green{{border-left-color:var(--green);padding:7px 14px;}}
-.thumb{{width:104px;height:64px;object-fit:cover;border:1px solid var(--line);
-flex:none;background:#000;cursor:pointer;}}
-.thumb:hover{{outline:2px solid #46c;}}
-.meta{{flex:1;min-width:0;}}
-.rtop{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}}
-.time{{font-family:var(--head);color:var(--muted);font-size:12px;width:78px;flex:none;
-letter-spacing:.03em;}}
-.pill{{font-family:var(--head);font-size:10.5px;font-weight:700;padding:3px 10px;
-flex:none;text-transform:uppercase;letter-spacing:.06em;}}
+
+/* feed — wide grid that fills landscape */
+.feed{{max-width:1680px;margin:0 auto;padding:8px 28px 60px;}}
+.day{{margin-top:26px;}}
+.day h2{{font-family:var(--head);font-size:13px;color:var(--muted);text-transform:uppercase;
+letter-spacing:.1em;margin:0 0 12px;display:flex;align-items:center;gap:9px;font-weight:700;}}
+.daycount{{background:var(--card);border:1px solid var(--line);padding:2px 9px;
+font-size:11px;color:var(--muted);}}
+.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));
+gap:14px;align-items:start;}}
+.card{{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line);
+overflow:hidden;}}
+.card.red{{border-left-color:var(--red);}}
+.card.yellow{{border-left-color:var(--yellow);}}
+.card.green{{border-left-color:var(--green);}}
+.card img.thumb{{width:100%;height:190px;object-fit:cover;background:#000;display:block;
+border-bottom:1px solid var(--line);cursor:pointer;}}
+.card img.thumb:hover{{outline:2px solid #46c;outline-offset:-2px;}}
+.card .body{{padding:11px 14px;}}
+.card.green .body{{padding:9px 14px;}}
+.rtop{{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}}
+.time{{font-family:var(--head);color:var(--muted);font-size:12px;letter-spacing:.03em;}}
+.pill{{font-family:var(--head);font-size:10px;font-weight:700;padding:3px 10px;
+text-transform:uppercase;letter-spacing:.06em;}}
 .pill.red{{background:rgba(229,64,58,.18);color:#ff8a85;}}
 .pill.yellow{{background:rgba(242,162,0,.18);color:#ffc24d;}}
 .pill.green{{background:rgba(47,184,92,.16);color:#5fd98a;}}
-.grade{{font-family:var(--head);font-size:10px;font-weight:700;padding:3px 8px;
-flex:none;text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line);}}
+.grade{{font-family:var(--head);font-size:9.5px;font-weight:700;padding:3px 8px;
+text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--line);}}
 .grade.g-hi{{color:#ff8a85;border-color:#5a2b2b;}}
 .grade.g-mid{{color:#ffc24d;border-color:#5a4a1f;}}
 .grade.g-lo{{color:var(--muted);}}
-.where{{font-weight:700;font-size:13.5px;}}
+.where{{font-weight:700;font-size:13.5px;margin-top:8px;word-break:break-word;}}
+.card.green .where{{margin-top:7px;font-size:13px;}}
 .what{{color:var(--muted);font-size:12px;margin-top:4px;}}
-.live{{display:inline-flex;align-items:center;gap:6px;color:var(--green);
-font-size:11px;text-transform:uppercase;letter-spacing:.05em;margin-left:auto;}}
-.dot{{width:8px;height:8px;border-radius:50%;background:var(--green);
-animation:pulse 1.4s infinite;}}
-@keyframes pulse{{0%,100%{{opacity:1;}}50%{{opacity:.25;}}}}
-.empty{{font-family:var(--head);text-align:center;color:var(--green);padding:60px 0;
-font-size:18px;letter-spacing:.05em;}}
-footer{{color:var(--muted);font-size:11px;text-align:center;margin-top:32px;
-line-height:1.8;text-transform:uppercase;letter-spacing:.04em;}}
+.empty{{font-family:var(--head);text-align:center;color:var(--green);padding:80px 0;
+font-size:20px;letter-spacing:.05em;}}
+footer{{color:var(--muted);font-size:11px;text-align:center;padding:24px;
+text-transform:uppercase;letter-spacing:.04em;line-height:1.8;}}
+
 /* filtering (CSS :has() hides days that end up empty) */
-body[data-filter="red"] .row:not(.red){{display:none;}}
-body[data-filter="yellow"] .row:not(.yellow){{display:none;}}
-body[data-filter="green"] .row:not(.green){{display:none;}}
-body[data-filter="red"] .day:not(:has(.row.red)){{display:none;}}
-body[data-filter="yellow"] .day:not(:has(.row.yellow)){{display:none;}}
-body[data-filter="green"] .day:not(:has(.row.green)){{display:none;}}
-</style></head><body data-filter="all"><div class="wrap">
-<header>{_EYE_SVG}<div><h1>EyeGuard Report</h1>
-<div class="sub">Updated {now.strftime('%-I:%M:%S %p')} · last {days} days</div></div>{live_tag}</header>
-<div class="cards">
-<div class="card red"><div class="n">{reds}</div><div class="l">Revealing</div></div>
-<div class="card yellow"><div class="n">{yellows}</div><div class="l">Suggestive</div></div>
-<div class="card green"><div class="n">{greens}</div><div class="l">Browsing</div></div>
+body[data-filter="red"] .card:not(.red),
+body[data-filter="yellow"] .card:not(.yellow),
+body[data-filter="green"] .card:not(.green){{display:none;}}
+body[data-filter="red"] .day:not(:has(.card.red)),
+body[data-filter="yellow"] .day:not(:has(.card.yellow)),
+body[data-filter="green"] .day:not(:has(.card.green)){{display:none;}}
+
+@media(max-width:640px){{
+.topbar,.controls,.feed{{padding-left:16px;padding-right:16px;}}
+.filters{{margin-left:0;}}.controls{{gap:14px;}}
+}}
+</style></head><body data-filter="all">
+
+<div class="topbar">{_EYE_SVG}
+<div><h1>EyeGuard</h1><div class="sub">Activity Report</div></div>
+{live_tag}<span class="seen">{last_seen}</span><span class="spacer"></span>
+<span class="seen">Last {days} days</span></div>
+
+<div class="controls">
+<div class="stats">
+<div class="stat red"><div class="n">{reds}</div><div class="l">Revealing</div></div>
+<div class="stat yellow"><div class="n">{yellows}</div><div class="l">Suggestive</div></div>
+<div class="stat green"><div class="n">{greens}</div><div class="l">Browsing</div></div>
 </div>
 <div class="filters">
 <button class="fbtn active" data-sev="all" onclick="flt('all')">All</button>
 <button class="fbtn" data-sev="red" onclick="flt('red')">Revealing</button>
 <button class="fbtn" data-sev="yellow" onclick="flt('yellow')">Suggestive</button>
 <button class="fbtn" data-sev="green" onclick="flt('green')">Browsing</button>
-</div>
-{sections}
+</div></div>
+
+<div class="feed">{sections}</div>
 <footer>Screen watched locally on this Mac · flags and browsing activity shared with your accountability partner<br>
 History auto-deletes after {days} days · Revealing = immediate-alert (very revealing or nude) · Suggestive = mildly revealing / borderline · Browsing = clean activity (site/app only, no image)</footer>
-</div><script>
+
+<script>
 function flt(s){{document.body.dataset.filter=s;
 document.querySelectorAll('.fbtn').forEach(function(b){{
 b.classList.toggle('active',b.dataset.sev===s);}});
@@ -322,7 +355,7 @@ try{{localStorage.setItem('eg_filter',s);}}catch(e){{}}}}
 // restore the chosen filter across the live auto-refresh
 try{{var s=localStorage.getItem('eg_filter');if(s&&s!=='all')flt(s);}}catch(e){{}}
 // click a thumbnail to open the full frame
-document.querySelectorAll('.thumb').forEach(function(t){{
+document.querySelectorAll('img.thumb').forEach(function(t){{
 t.onclick=function(){{window.open(t.src,'_blank');}};}});
 </script></body></html>"""
     out.write_text(html)
