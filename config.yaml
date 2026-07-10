@@ -14,7 +14,11 @@ capture:
 detection:
   # NudeNet fast-path: if an explicit-exposure region scores >= this, FLAG the
   # frame immediately (skip CLIP). Everything else goes to the CLIP arbiter.
-  flag_threshold: 0.50
+  # NudeNet confidence needed to hard-flag RED without waiting for CLIP. Was 0.50,
+  # which fired BUTTOCKS_EXPOSED=0.58 on a fully-clothed man (fire training video).
+  # Genuine exposure scores well above this; 0.70 kills the weak misreads while
+  # still auto-flagging real nudity (and CLIP still catches anything below it).
+  flag_threshold: 0.70
 
   # Actual exposure that should hard-flag without waiting for CLIP.
   explicit_labels:
@@ -119,6 +123,12 @@ arbiter:
     - "a portrait photo of a clothed person"
     - "a selfie of a fully clothed person"
     - "a group of people posing for a photo"
+    # fitted casual tees / caps / outdoor crowds — a printed t-shirt on a person
+    # matched "a woman in a tight top that hugs her chest" on a tile crop
+    - "a person wearing a fitted t-shirt with a printed graphic logo"
+    - "a person wearing a baseball cap and a t-shirt"
+    - "people walking outdoors on a street or sidewalk"
+    - "a group of tourists outdoors under trees"
     # nature / scenery (pulls landscape wallpapers away from "shirtless person")
     - "a mountain landscape"
     - "a forest or trees"
@@ -158,6 +168,44 @@ arbiter:
     - "a lizard, chameleon, snake, or reptile closeup"
     - "a nature documentary of wildlife or animals"
     - "a beach, sand, or rocky shoreline"
+    # VEHICLES — smooth curved body panels (fenders, wheel wells, tailgates) are
+    # the #1 hub for "buttocks"/"bending over" on tight tile crops. Marketplace
+    # truck listings flagged ~25x with no vehicle bucket to land in.
+    - "a pickup truck parked outside"
+    - "the rear of a pickup truck with a tailgate"
+    - "a truck bed and tailgate"
+    - "a car fender and wheel well"
+    - "a closeup of a shiny painted car body panel"
+    - "a wheel and tire on a vehicle"
+    - "a used car or truck for sale listing photo"
+    - "a car interior with seats and a steering wheel"
+    - "a truck parked on asphalt in a parking lot"
+    # tight, DIM crops of vehicle interiors (footwells, seat bases, door sills,
+    # carpet) are smooth curved gray surfaces — exactly the "closeup of buttocks"
+    # hub. The wide-shot interior anchor above doesn't cover these.
+    - "a closeup of a car seat cushion and upholstery"
+    - "a carpeted car floor mat and footwell"
+    - "a dark grainy photo of a car interior"
+    - "a closeup of gray fabric upholstery"
+    - "a car door sill and interior floor"
+    - "a blurry low-light photo inside a vehicle"
+    - "a closeup of gray carpet or fabric texture"
+    # CLOTHED PEOPLE FROM BEHIND — a man's backside in trousers matched "a
+    # woman's butt in tight pants". The male anchors above only cover shirtless/
+    # gym/nude men, leaving an ordinary clothed man walking away with no home.
+    - "a man seen from behind wearing pants"
+    - "a man's backside in khaki pants or trousers"
+    - "a man walking away from the camera"
+    - "a person standing with their back to the camera"
+    - "a man in khaki pants and a polo shirt"
+    # FIRE / EMERGENCY / TRAINING + LECTURE ROOMS (work training videos)
+    - "a firefighter in turnout gear and helmet"
+    - "firefighters training or a fire scene"
+    - "a fire truck or emergency vehicle"
+    - "a man giving a presentation in a conference room"
+    - "a training or lecture video with a projector screen"
+    - "a classroom or seminar room with chairs"
+    - "a person speaking at a podium in a meeting room"
     # more specific games that misread
     - "a minecraft blocky sandbox video game"
     - "a grand theft auto GTA open-world video game"
@@ -277,6 +325,9 @@ context_risk:
     - "Activity Monitor"
     - "System Settings"
     - "Claude"          # AI assistant / design+dev work
+    - "SQL Editor"      # Supabase / database consoles — text only
+    - "supabase.com"
+    - "github.com"      # code hosting — text/diffs
 
   # LOW RISK — discount (keep YELLOW only if very confident, >= low_risk_min_
   # confidence). RED still always surfaces, so no blind spot for real nudity.
@@ -288,6 +339,12 @@ context_risk:
     - "Preview"
     - "Mail"
     - "Notes"
+    # work / fire-service training platforms (lecture + fireground footage; the
+    # instructor walking away from camera misread as "a woman's butt in pants")
+    - "fireengineering"
+    - "fireengineeringtraining"
+    - "Truck Companies"
+    - "lms."
     # gameplay videos
     - "gameplay"
     - "playthrough"
