@@ -22,7 +22,7 @@ import threading
 import urllib.error
 import urllib.request
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 _NS = uuid.UUID("e7e9f1c0-0000-4000-8000-eeeeeeeeeeee")  # stable namespace
@@ -45,6 +45,7 @@ class SupabaseUploader:
         self.retry_seconds = retry_seconds
         self.heartbeat = heartbeat
         self._suspended = False  # True between sleep/power-off and wake
+        self._status_provider = None  # returns {screen_ok, frames_analyzed}
         self._lock = threading.Lock()          # guards the pending file
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -55,6 +56,11 @@ class SupabaseUploader:
     def start(self):
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
+
+    def set_status_provider(self, fn):
+        """fn() -> {"screen_ok": bool, "frames_analyzed": int}. Stamped onto each
+        heartbeat so the server can alert if the agent goes blind or stalls."""
+        self._status_provider = fn
 
     def enqueue(self, record: dict):
         """Append a flag record to the persistent queue and wake the worker."""
@@ -79,46 +85,8 @@ class SupabaseUploader:
             "no_image": True,
         })
 
-    def prune_cloud(self, days: int):
-        """Delete frame images older than `days` from the bucket, so the cloud
-        wipe matches the local + row retention. Best-effort; never raises.
-        (Flag rows themselves are pruned server-side by pg_cron.)"""
-        try:
-            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-            old: list[str] = []
-            offset = 0
-            while True:
-                body = json.dumps({
-                    "prefix": "", "limit": 100, "offset": offset,
-                    "sortBy": {"column": "created_at", "order": "asc"}}).encode()
-                req = urllib.request.Request(
-                    f"{self.base}/storage/v1/object/list/frames", data=body,
-                    method="POST",
-                    headers=self._headers({"Content-Type": "application/json"}))
-                with urllib.request.urlopen(req, timeout=20) as r:
-                    items = json.loads(r.read())
-                if not items:
-                    break
-                for it in items:
-                    created, name = it.get("created_at"), it.get("name")
-                    if not created or not name:
-                        continue
-                    dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                    if dt < cutoff:
-                        old.append(name)
-                if len(items) < 100:
-                    break
-                offset += 100
-            for i in range(0, len(old), 100):
-                req = urllib.request.Request(
-                    f"{self.base}/storage/v1/object/frames",
-                    data=json.dumps({"prefixes": old[i:i + 100]}).encode(),
-                    method="DELETE",
-                    headers=self._headers({"Content-Type": "application/json"}))
-                with urllib.request.urlopen(req, timeout=30) as r:
-                    r.read()
-        except Exception:
-            pass  # retention must never crash the app
+    # Cloud image retention now runs SERVER-SIDE (pg_cron) — the agent key can no
+    # longer delete storage objects, so it can't silently wipe review frames.
 
     # ---- worker -------------------------------------------------------------
 
@@ -171,6 +139,15 @@ class SupabaseUploader:
                "updated_at": now}
         if status == "alive":
             row["alerted"] = False
+        if self._status_provider is not None:
+            try:
+                extra = self._status_provider() or {}
+                if "screen_ok" in extra:
+                    row["screen_ok"] = bool(extra["screen_ok"])
+                if "frames_analyzed" in extra:
+                    row["frames_analyzed"] = int(extra["frames_analyzed"])
+            except Exception:
+                pass
         req = urllib.request.Request(
             f"{self.base}/rest/v1/device_status", data=json.dumps(row).encode(),
             method="POST",
@@ -252,13 +229,20 @@ class SupabaseUploader:
         return h
 
     def _put_image(self, remote_path: str, data: bytes):
+        # INSERT-ONLY (no x-upsert): the agent key can create an image but not
+        # overwrite or delete one, so a review frame can't be silently blanked.
+        # A 409 means it already exists (an earlier attempt succeeded) -> fine.
         url = f"{self.base}/storage/v1/object/frames/{remote_path}"
         req = urllib.request.Request(
             url, data=data, method="POST",
-            headers=self._headers({"Content-Type": "image/jpeg",
-                                   "x-upsert": "true"}))
-        with urllib.request.urlopen(req, timeout=20) as r:
-            r.read()
+            headers=self._headers({"Content-Type": "image/jpeg"}))
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                r.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 409:  # already uploaded on a previous attempt
+                return
+            raise
 
     def _post_row(self, row: dict):
         # ignore-duplicates (ON CONFLICT DO NOTHING) keeps retries idempotent

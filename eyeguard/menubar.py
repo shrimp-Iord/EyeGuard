@@ -83,6 +83,7 @@ class EyeGuardApp(rumps.App):
         self._uploader = None           # set once the detection loop starts
         self._log_seen = False          # have we ever seen a non-empty flag log?
         self._log_missing = 0           # consecutive checks the log was missing
+        self._log_lines = None          # tamper baseline: last known line count
         self._last_brightness: float | None = None
         # Frozen-capture detection: if the analyzed-frame count stops growing for
         # a long stretch while in use, we're almost certainly seeing only the
@@ -179,10 +180,43 @@ class EyeGuardApp(rumps.App):
             prune(self.cfg)
         except Exception:
             pass  # retention must never crash the app
-        # Wipe old images from the cloud bucket too (matches local retention).
-        if self._uploader is not None:
-            days = int(self.cfg.get("logging", {}).get("retention_days", 7))
-            self._uploader.prune_cloud(days)
+        # Retention just (legitimately) shrank the log, so reset the tamper
+        # baseline — the next check re-establishes it from the pruned size.
+        # Cloud images are pruned SERVER-SIDE now (the agent key can't delete).
+        self._log_lines = None
+
+    def _check_log_tamper(self, log_path, uploader):
+        """Detect deletion / truncation / line-drops in flags.jsonl. Retention
+        resets the baseline (in _prune), so any shrink here is external editing.
+        Records an immutable tamper event; the cloud copy is already safe."""
+        try:
+            if log_path.exists():
+                with log_path.open() as f:
+                    count = sum(1 for ln in f if ln.strip())
+            else:
+                count = None
+        except OSError:
+            count = None
+
+        if count is None:                       # missing / unreadable
+            if self._log_seen:
+                self._log_missing += 1
+                if self._log_missing == 2:      # ~30s, rules out transients
+                    uploader.report_tamper("flags.jsonl was deleted or unreadable")
+                    print("[tamper] flags.jsonl deleted — reported", flush=True)
+            return
+
+        self._log_missing = 0
+        if count > 0:
+            self._log_seen = True
+        if (self._log_seen and self._log_lines is not None
+                and count < self._log_lines):   # shrank outside retention
+            uploader.report_tamper(
+                f"flags.jsonl shrank {self._log_lines}->{count} lines "
+                f"outside retention")
+            print(f"[tamper] flags.jsonl shrank {self._log_lines}->{count} "
+                  f"— reported", flush=True)
+        self._log_lines = count
 
     def _report_path(self) -> Path:
         return Path(self.cfg["logging"]["flag_log"]).resolve().parent \
@@ -298,6 +332,14 @@ class EyeGuardApp(rumps.App):
                 blur_strength=log_cfg.get("blur_strength", 50))
             uploader = self._build_uploader()
             self._uploader = uploader
+            if uploader is not None:
+                # Stamp each heartbeat with screen health + frame count so the
+                # server can alert if the agent goes blind or its analysis stalls.
+                def _status():
+                    with self._lock:
+                        return {"screen_ok": self._screen_ok,
+                                "frames_analyzed": self._frames_analyzed}
+                uploader.set_status_provider(_status)
             interval = cap["interval_seconds"]
         except Exception as e:
             with self._lock:
@@ -370,23 +412,14 @@ class EyeGuardApp(rumps.App):
                               f"frames={frames} frozen={frozen} "
                               f"(no screen access?)", flush=True)
 
-                    # Local log-tamper: retention rewrites flags.jsonl atomically
-                    # (it's never missing), so a missing file means someone rm'd
-                    # it. Report it immutably + alert after two misses (~30s) to
-                    # rule out any transient. The cloud record is already safe.
+                    # Local log-tamper. Retention is the ONLY sanctioned shrink
+                    # (and it resets the baseline via _prune), so between prunes
+                    # the line count must only grow. A missing file, an emptied
+                    # file, or a drop in line count all mean someone edited it.
+                    # Reported immutably (the cloud record is already safe).
                     if uploader is not None:
                         try:
-                            lp = logger.flag_log
-                            if lp.exists() and lp.stat().st_size > 0:
-                                self._log_seen = True
-                                self._log_missing = 0
-                            elif self._log_seen and not lp.exists():
-                                self._log_missing += 1
-                                if self._log_missing == 2:
-                                    uploader.report_tamper(
-                                        "flags.jsonl was deleted")
-                                    print("[tamper] flags.jsonl deleted — "
-                                          "reported to cloud", flush=True)
+                            self._check_log_tamper(logger.flag_log, uploader)
                         except Exception:
                             pass
 
