@@ -81,6 +81,8 @@ class EyeGuardApp(rumps.App):
         self._frames_analyzed = 0
         self._screen_ok = True          # False = blind (black or frozen wallpaper)
         self._uploader = None           # set once the detection loop starts
+        self._log_seen = False          # have we ever seen a non-empty flag log?
+        self._log_missing = 0           # consecutive checks the log was missing
         self._last_brightness: float | None = None
         # Frozen-capture detection: if the analyzed-frame count stops growing for
         # a long stretch while in use, we're almost certainly seeing only the
@@ -367,6 +369,26 @@ class EyeGuardApp(rumps.App):
                         print(f"[probe] PROBLEM brightness={bright} "
                               f"frames={frames} frozen={frozen} "
                               f"(no screen access?)", flush=True)
+
+                    # Local log-tamper: retention rewrites flags.jsonl atomically
+                    # (it's never missing), so a missing file means someone rm'd
+                    # it. Report it immutably + alert after two misses (~30s) to
+                    # rule out any transient. The cloud record is already safe.
+                    if uploader is not None:
+                        try:
+                            lp = logger.flag_log
+                            if lp.exists() and lp.stat().st_size > 0:
+                                self._log_seen = True
+                                self._log_missing = 0
+                            elif self._log_seen and not lp.exists():
+                                self._log_missing += 1
+                                if self._log_missing == 2:
+                                    uploader.report_tamper(
+                                        "flags.jsonl was deleted")
+                                    print("[tamper] flags.jsonl deleted — "
+                                          "reported to cloud", flush=True)
+                        except Exception:
+                            pass
 
                 # GREEN activity trail: record what app/site is active (no image)
                 # so a reviewer sees everywhere the user went — a new row on each

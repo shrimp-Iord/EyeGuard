@@ -63,6 +63,22 @@ class SupabaseUploader:
                 f.write(json.dumps(record) + "\n")
         self._wake.set()
 
+    def report_tamper(self, detail: str):
+        """Record a tamper/system event (e.g. the local log was deleted) as an
+        imageless flag row. It's append-only so it can't be erased, and it fires
+        the tamper alert email. Goes through the reliable queue (retries offline)."""
+        self.enqueue({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "verdict": "flagged",
+            "reason": f"tamper: {detail}",
+            "app": "EyeGuard",
+            "url": None,
+            "window_title": "local log tamper detected",
+            "grade": "Likely",
+            "risk": "high",
+            "no_image": True,
+        })
+
     def prune_cloud(self, days: int):
         """Delete frame images older than `days` from the bucket, so the cloud
         wipe matches the local + row retention. Best-effort; never raises.
@@ -196,10 +212,10 @@ class SupabaseUploader:
     def _upload(self, rec: dict) -> bool:
         """Upload one record. Returns True when done (or when it can never
         complete, so we stop retrying)."""
-        # GREEN activity records are intentionally imageless — just insert the
-        # row (where + when). The "no alert without an image" rule applies only
-        # to FLAGS (red/yellow), which must carry a frame the partner can review.
-        if rec.get("verdict") == "clear":
+        # GREEN activity records + tamper/system events are intentionally
+        # imageless — just insert the row. The "no alert without an image" rule
+        # applies only to real detected FLAGS, which must carry a review frame.
+        if rec.get("verdict") == "clear" or rec.get("no_image"):
             self._post_row(self._row(rec, None))             # raises on failure
             return True
         local = rec.get("saved_frame")
