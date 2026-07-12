@@ -245,11 +245,14 @@ class SupabaseUploader:
             r.read()
 
     def _post_row(self, row: dict):
+        # ignore-duplicates (ON CONFLICT DO NOTHING) keeps retries idempotent
+        # using only INSERT — no UPDATE — so the flags table can be locked
+        # append-only (Phase 4): the agent can never alter or delete a flag.
         url = f"{self.base}/rest/v1/flags"
         req = urllib.request.Request(
             url, data=json.dumps(row).encode(), method="POST",
             headers=self._headers({
                 "Content-Type": "application/json",
-                "Prefer": "resolution=merge-duplicates,return=minimal"}))
+                "Prefer": "resolution=ignore-duplicates,return=minimal"}))
         with urllib.request.urlopen(req, timeout=20) as r:
             r.read()
