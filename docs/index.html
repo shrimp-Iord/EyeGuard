@@ -286,7 +286,7 @@ function card(r, dt, signed){
   const img = url? `<img class="thumb" src="${url}" loading="lazy">` : "";
   const what = red ? (r.is_nudity? "explicit nudity / exposed body — see image"
                                  : "very revealing content — see image")
-                   : drm ? "streaming video EyeGuard can't see — protected (DRM)"
+                   : drm ? "Not a content flag — macOS blanks DRM-protected video, so EyeGuard couldn't view it. The title is logged so you can review it yourself."
                    : esc((r.reason||"").split(":").pop()||"suggestive content");
   return `<div class="card ${sevCls}">${img}<div class="body"><div class="rtop">`
     + `<span class="time">${time}</span><span class="pill ${sevCls}">${sevTxt}</span>${grade}`

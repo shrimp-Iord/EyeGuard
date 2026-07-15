@@ -109,7 +109,9 @@ def _what(rec: dict) -> str:
     Show an honest generic line and let the thumbnail show the specifics.
     """
     if (rec.get("reason") or "").startswith("drm"):
-        return "streaming video EyeGuard can't see — protected (DRM)"
+        return ("Not a content flag — macOS blanks DRM-protected video, so "
+                "EyeGuard couldn't view it. The title is logged so you can "
+                "review it yourself.")
     if rec.get("verdict") == "flagged":
         # NudeNet (trained nudity detector, runs first) fires on ACTUAL exposed
         # body parts, not bikinis — so a nudenet hit means real nudity.
