@@ -69,6 +69,27 @@ class FlagLogger:
             f.write(json.dumps(record) + "\n")
         return record
 
+    def log_drm(self, context: dict | None = None,
+                service: str | None = None) -> dict:
+        """Log a YELLOW flag for DRM streaming video that macOS blanks to black —
+        EyeGuard can't see the pixels, so we record the title instead. Imageless
+        (the frame is black); the partner sees WHAT was watched, not the content."""
+        ctx = context or {}
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "verdict": "alert",
+            "reason": f"drm:{service or 'streaming'}",
+            "app": ctx.get("app"),
+            "url": ctx.get("url"),
+            "window_title": ctx.get("window_title"),
+            "grade": "Possible",
+            "risk": "neutral",
+            "no_image": True,
+        }
+        with self.flag_log.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+        return record
+
     def log_activity(self, context: dict | None = None) -> dict:
         """Log a clean (GREEN) browsing record: what app/site is active, with a
         timestamp and no image. This builds the full activity trail so a reviewer

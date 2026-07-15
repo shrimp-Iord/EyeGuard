@@ -108,6 +108,8 @@ def _what(rec: dict) -> str:
     genitals" match — that would mislabel clothed-but-revealing content as nudity.
     Show an honest generic line and let the thumbnail show the specifics.
     """
+    if (rec.get("reason") or "").startswith("drm"):
+        return "streaming video EyeGuard can't see — protected (DRM)"
     if rec.get("verdict") == "flagged":
         # NudeNet (trained nudity detector, runs first) fires on ACTUAL exposed
         # body parts, not bikinis — so a nudenet hit means real nudity.
@@ -160,6 +162,8 @@ def _card(rec: dict, dt: datetime, report_dir: Path) -> str:
     if red:
         sev_txt = ("Nudity" if (rec.get("reason") or "").startswith("nudenet")
                    else "Revealing")
+    elif (rec.get("reason") or "").startswith("drm"):
+        sev_txt = "DRM Video"
     else:
         sev_txt = "Suggestive"
     grade = rec.get("grade") or ""

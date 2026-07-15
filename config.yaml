@@ -438,6 +438,34 @@ supabase:
 # what's on screen even when nothing is flagged, so a reviewer can see the full
 # browsing history — nothing gets past human review just because the detector
 # didn't flag it. These log to the same feed with a green marker.
+# DRM streaming (Netflix, Disney+, etc.) is blanked to BLACK by macOS in any
+# screen capture — EyeGuard literally cannot see the video. When a DRM service is
+# active AND the screen is a large uniform near-black region, raise a YELLOW flag
+# tagged with the title, so the partner sees WHAT was watched even though the
+# pixels are unrecoverable. (Non-DRM video — YouTube, adult sites — is unaffected
+# and still fully analyzed.)
+drm:
+  enabled: true
+  # Matched as case-insensitive substrings of the app / URL / window title.
+  services:
+    - netflix
+    - disneyplus
+    - "disney+"
+    - hulu
+    - hbomax
+    - "max.com"
+    - primevideo
+    - amazon        # Prime Video (broad, but only flags if the screen is black)
+    - "tv.apple"    # Apple TV+
+    - peacock
+    - paramount
+    - crunchyroll
+  # "Unseeable video" = a frame this dark AND this uniform (macOS DRM blanking).
+  black_mean: 20
+  black_std: 10
+  # Re-flag the same title at most this often (seconds) while it keeps playing.
+  repeat_seconds: 1800
+
 activity_logging:
   enabled: true
   # How often (seconds) to check the active app/site. A new record is written

@@ -277,14 +277,16 @@ function card(r, dt, signed){
       + `<div class="where">${where(r)}</div></div></div>`;
   }
   const red = r.verdict==="flagged";
+  const drm = (r.reason||"").startsWith("drm");
   const sevCls = red?"red":"yellow";
-  const sevTxt = red ? (r.is_nudity?"Nudity":"Revealing") : "Suggestive";
+  const sevTxt = red ? (r.is_nudity?"Nudity":"Revealing") : (drm?"DRM Video":"Suggestive");
   const gcls = {Likely:"g-hi",Possible:"g-mid",Borderline:"g-lo"}[r.grade]||"";
   const grade = r.grade? `<span class="grade ${gcls}">${esc(r.grade)}</span>` : "";
   const url = r.image_path && signed[r.image_path];
   const img = url? `<img class="thumb" src="${url}" loading="lazy">` : "";
   const what = red ? (r.is_nudity? "explicit nudity / exposed body — see image"
                                  : "very revealing content — see image")
+                   : drm ? "streaming video EyeGuard can't see — protected (DRM)"
                    : esc((r.reason||"").split(":").pop()||"suggestive content");
   return `<div class="card ${sevCls}">${img}<div class="body"><div class="rtop">`
     + `<span class="time">${time}</span><span class="pill ${sevCls}">${sevTxt}</span>${grade}`

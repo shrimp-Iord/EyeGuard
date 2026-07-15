@@ -66,6 +66,14 @@ class EyeGuardApp(rumps.App):
         self._risk_on = bool(self._risk.get("enabled"))
         self._activity = self.cfg.get("activity_logging", {})
         self._activity_on = bool(self._activity.get("enabled"))
+        self._drm = self.cfg.get("drm", {})
+        self._drm_on = bool(self._drm.get("enabled"))
+        self._drm_services = [s.lower() for s in self._drm.get("services", [])]
+        self._drm_black_mean = float(self._drm.get("black_mean", 20))
+        self._drm_black_std = float(self._drm.get("black_std", 10))
+        self._drm_repeat = int(self._drm.get("repeat_seconds", 1800))
+        self._last_drm_title = None
+        self._last_drm_time = 0.0
 
         # Shared state, written by the detection thread, read by the UI timer.
         self._lock = threading.Lock()
@@ -435,22 +443,41 @@ class EyeGuardApp(rumps.App):
                 # GREEN activity trail: record what app/site is active (no image)
                 # so a reviewer sees everywhere the user went — a new row on each
                 # change of location, plus a keepalive every heartbeat interval.
-                if self._activity_on and time.time() - last_activity >= act_sample:
+                if ((self._activity_on or self._drm_on)
+                        and time.time() - last_activity >= act_sample):
                     last_activity = time.time()
                     actx = capture_context()
                     app_name = actx.get("app")
                     if (app_name and not frontmost_is_self()
                             and not is_ignored(actx, self._ignore)):
-                        loc = (f"{app_name}|"
-                               f"{actx.get('url') or actx.get('window_title')}")
-                        now2 = time.time()
-                        if (loc != last_activity_loc
-                                or now2 - last_activity_log >= act_heartbeat):
-                            rec = logger.log_activity(actx)
-                            if uploader is not None:
-                                uploader.enqueue(rec)
-                            last_activity_loc = loc
-                            last_activity_log = now2
+                        if self._activity_on:
+                            loc = (f"{app_name}|"
+                                   f"{actx.get('url') or actx.get('window_title')}")
+                            now2 = time.time()
+                            if (loc != last_activity_loc
+                                    or now2 - last_activity_log >= act_heartbeat):
+                                rec = logger.log_activity(actx)
+                                if uploader is not None:
+                                    uploader.enqueue(rec)
+                                last_activity_loc = loc
+                                last_activity_log = now2
+                        # DRM streaming video macOS blanks to black -> yellow flag
+                        # tagged with the title (the pixels are unrecoverable).
+                        if self._drm_on:
+                            svc = self._drm_service(actx)
+                            if svc and self._screen_is_black():
+                                title = (actx.get("window_title")
+                                         or actx.get("url") or svc)
+                                now3 = time.time()
+                                if (title != self._last_drm_title
+                                        or now3 - self._last_drm_time
+                                        >= self._drm_repeat):
+                                    rec = logger.log_drm(actx, svc)
+                                    if uploader is not None:
+                                        uploader.enqueue(rec)
+                                    self._record_flag(Verdict.ALERT, actx)
+                                    self._last_drm_title = title
+                                    self._last_drm_time = now3
             except Exception as e:
                 with self._lock:
                     self._watching = False
@@ -471,6 +498,33 @@ class EyeGuardApp(rumps.App):
                 return float(arr[:, :3].mean())  # exclude the alpha byte
         except Exception:
             return None
+
+    def _drm_service(self, ctx: dict) -> str | None:
+        """The DRM streaming service active in this context, if any."""
+        hay = " ".join(filter(None, [ctx.get("app"), ctx.get("url"),
+                                     ctx.get("window_title")])).lower()
+        for s in self._drm_services:
+            if s in hay:
+                return s
+        return None
+
+    def _screen_is_black(self) -> bool:
+        """True if any display is a large uniform near-black region — the
+        signature of DRM video, which macOS blanks in any screen capture."""
+        try:
+            import mss
+            import numpy as np
+            with mss.mss() as sct:
+                for m in sct.monitors[1:]:
+                    shot = sct.grab(m)
+                    arr = np.frombuffer(shot.bgra, dtype=np.uint8).reshape(-1, 4)
+                    rgb = arr[:, :3]
+                    if (rgb.mean() < self._drm_black_mean
+                            and float(rgb.std()) < self._drm_black_std):
+                        return True
+        except Exception:
+            pass
+        return False
 
     def _record_flag(self, verdict: Verdict, ctx: dict):
         where = ctx.get("app") or "?"
