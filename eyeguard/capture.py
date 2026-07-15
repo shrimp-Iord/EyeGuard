@@ -33,14 +33,25 @@ class ScreenCapturer:
         self.change_threshold = change_threshold
         # Per-display downscaled grayscale signature of the last frame seen.
         self._last_signature: dict[int, np.ndarray] = {}
+        self._last_monitor_count: int | None = None
 
     def _monitors(self, sct):
         # mss.monitors[0] is the "all displays" virtual screen; 1..n are physical.
+        # Re-read every call so a newly attached display (external monitor,
+        # Sidecar, extended AirPlay) is picked up automatically.
         physical = sct.monitors[1:]
-        if self.displays == "all":
+        d = self.displays
+        if d in ("all", "*", "", None):
             return list(enumerate(physical, start=1))
-        idx = int(self.displays)
-        return [(idx, sct.monitors[idx])]
+        try:
+            idx = int(d)
+            if 1 <= idx <= len(physical):
+                return [(idx, sct.monitors[idx])]
+        except (ValueError, TypeError):
+            pass
+        # Unknown or now-out-of-range (e.g. that display was unplugged): capture
+        # everything rather than nothing — never leave a screen unwatched.
+        return list(enumerate(physical, start=1))
 
     def _downscale(self, img: Image.Image) -> Image.Image:
         if img.width <= self.max_width:
@@ -73,8 +84,21 @@ class ScreenCapturer:
         import mss
 
         with mss.mss() as sct:
-            for display_index, monitor in self._monitors(sct):
-                shot = sct.grab(monitor)
+            monitors = self._monitors(sct)
+            # Note (but don't alarm on) display hot-plugs — a new screen just
+            # means one more thing to watch, and it's captured from now on.
+            n = len(monitors)
+            if n != self._last_monitor_count:
+                if self._last_monitor_count is not None:
+                    print(f"[capture] displays changed "
+                          f"{self._last_monitor_count} -> {n}; capturing all {n}",
+                          flush=True)
+                self._last_monitor_count = n
+            for display_index, monitor in monitors:
+                try:
+                    shot = sct.grab(monitor)
+                except Exception:
+                    continue  # one flaky display must not blind the others
                 img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
                 img = self._downscale(img)
                 sig = self._signature(img)
