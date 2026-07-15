@@ -285,12 +285,21 @@ class EyeGuardApp(rumps.App):
 
     # ---- cloud sync ---------------------------------------------------------
 
-    def _build_uploader(self) -> SupabaseUploader | None:
-        """Create the Supabase uploader from config, or None if disabled/unset.
-        The secret is read from a local file (chmod 600), never from config."""
+    def _build_uploader(self):
+        """Create the thing the loop uploads through, or None if disabled.
+
+        In SPLIT mode (the locked-down build) this agent holds no secret — it
+        forwards to the root vault daemon over a socket. In DIRECT mode (default)
+        this process holds the key and uploads itself."""
         sb = self.cfg.get("supabase", {})
         if not sb.get("enabled") or not sb.get("url"):
             return None
+        if sb.get("mode") == "split":
+            from .vault_client import VaultClient
+            up = VaultClient(sb.get("socket_path", "/var/run/eyeguard.sock"))
+            up.start()
+            print("[agent] split mode — forwarding to vault daemon", flush=True)
+            return up
         secret_path = Path(sb.get("secret_file", ".supabase_secret"))
         if not secret_path.is_absolute():
             secret_path = _BASE / secret_path
