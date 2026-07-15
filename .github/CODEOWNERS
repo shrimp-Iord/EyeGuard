@@ -1,0 +1,5 @@
+# Every file in this repo requires Dad's review before it can merge to main.
+# See deploy/WORKFLOW.md for the full dev -> approval -> deploy pipeline.
+# Replace the placeholder below with Dad's actual GitHub username once the
+# repo is transferred to him (deploy/CONTROL_PLANES.md, step 3).
+* @REPLACE-WITH-DADS-GITHUB-USERNAME
