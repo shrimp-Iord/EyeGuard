@@ -429,6 +429,10 @@ supabase:
   # In split mode, if the capture agent goes silent this long (seconds), the
   # daemon reports screen_ok=false (blind alert).
   agent_timeout: 90
+  # Verify the socket peer is the real managed agent (kernel-provided PID ->
+  # exact executable + launch-args match). Blocks a forged status ping that
+  # would otherwise suppress the blind alert. Only meaningful in split mode.
+  verify_peer: true
 
 # GREEN activity trail: log a clean record (app/site + timestamp, NO image) of
 # what's on screen even when nothing is flagged, so a reviewer can see the full

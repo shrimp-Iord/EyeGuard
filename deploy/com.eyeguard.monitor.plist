@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- EyeGuard session agent (split build) — the CAPTURE half.
+     Installed to /Library/LaunchAgents (root-owned) so the monitored user runs
+     it but can't edit it. Runs in the user's GUI session (needs Screen
+     Recording). Holds NO key; forwards detections to the root vault daemon.
+     Launched via the absolute run_agent.py path so the daemon's peer check
+     accepts exactly this invocation (`<python> <launcher>`, no extra args). -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.eyeguard.monitor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/EyeGuard.app/Contents/Resources/python/bin/python3.12</string>
+    <string>/Library/Application Support/EyeGuard/run_agent.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Library/Application Support/EyeGuard</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONPATH</key><string>/Library/Application Support/EyeGuard</string>
+  </dict>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>

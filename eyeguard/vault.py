@@ -17,9 +17,12 @@ suspend / resume.
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import socket
+import struct
+import sys
 import threading
 import time
 from pathlib import Path
@@ -28,13 +31,68 @@ from .uploader import SupabaseUploader
 
 _BASE = Path(__file__).resolve().parent.parent
 
+# ---- peer verification: prove the socket client is the real managed agent ----
+# The kernel tells us the connecting PID (unforgeable); from it we read the
+# process's executable + launch args (also kernel-provided). We require an exact
+# match to the managed agent's invocation, so a home-rolled forger that tries to
+# fake "I'm alive and seeing" is rejected. To PASS, you'd have to launch the real
+# root-owned launcher — which actually captures the screen. Residual (needs a
+# code-signed hardened binary to close): injecting into / debugging the real
+# process.
+_libc = ctypes.CDLL(None, use_errno=True)
+_CTL_KERN, _KERN_ARGMAX, _KERN_PROCARGS2 = 1, 8, 49
+_SOL_LOCAL, _LOCAL_PEERPID = 0, 0x002
+
+
+def _peer_pid(conn: socket.socket) -> int:
+    raw = conn.getsockopt(_SOL_LOCAL, _LOCAL_PEERPID, 4)
+    return struct.unpack("i", raw)[0]
+
+
+def _argmax() -> int:
+    val = ctypes.c_int(0)
+    sz = ctypes.c_size_t(ctypes.sizeof(val))
+    mib = (ctypes.c_int * 2)(_CTL_KERN, _KERN_ARGMAX)
+    _libc.sysctl(mib, 2, ctypes.byref(val), ctypes.byref(sz), None, 0)
+    return val.value or 262144
+
+
+def _proc_argv(pid: int) -> tuple[str, list[str]]:
+    """(executable_path, argv) for a pid, via sysctl KERN_PROCARGS2."""
+    n = _argmax()
+    buf = ctypes.create_string_buffer(n)
+    sz = ctypes.c_size_t(n)
+    mib = (ctypes.c_int * 3)(_CTL_KERN, _KERN_PROCARGS2, pid)
+    if _libc.sysctl(mib, 3, buf, ctypes.byref(sz), None, 0) != 0:
+        raise OSError("sysctl KERN_PROCARGS2 failed")
+    data = buf.raw[:sz.value]
+    argc = struct.unpack("i", data[:4])[0]
+    parts = data[4:].split(b"\x00")
+    exec_path = parts[0].decode("utf-8", "replace")
+    i = 1
+    while i < len(parts) and parts[i] == b"":  # padding after exec_path
+        i += 1
+    argv = []
+    while i < len(parts) and len(argv) < argc:
+        argv.append(parts[i].decode("utf-8", "replace"))
+        i += 1
+    return exec_path, argv
+
 
 class VaultDaemon:
     def __init__(self, uploader: SupabaseUploader, socket_path: str,
-                 agent_timeout: int = 90):
+                 agent_timeout: int = 90, verify_peer: bool = True,
+                 expected_launcher: str | None = None):
         self.uploader = uploader
         self.socket_path = socket_path
         self.agent_timeout = agent_timeout
+        self.verify_peer = verify_peer
+        # The managed agent must be launched as `<python> <base>/run_agent.py`.
+        # Running via an absolute launcher path means the code dir wins sys.path,
+        # so PYTHONPATH/cwd can't be used to shadow in fake code.
+        self.expected_exec = os.path.realpath(sys.executable)
+        self.expected_launcher = os.path.realpath(
+            expected_launcher or str(_BASE / "run_agent.py"))
         self._last_agent = 0.0
         self._last_status = {"screen_ok": True, "frames_analyzed": 0}
         self._lock = threading.Lock()
@@ -93,7 +151,30 @@ class VaultDaemon:
             threading.Thread(target=self._client, args=(conn,),
                              daemon=True).start()
 
+    def _verify(self, conn: socket.socket) -> bool:
+        """True iff the connecting process is the real managed agent."""
+        if not self.verify_peer:
+            return True
+        try:
+            exec_path, argv = _proc_argv(_peer_pid(conn))
+        except Exception:
+            return False
+        # The real gate: the process was launched as `<python> <launcher>` where
+        # <launcher> is the root-owned run_agent.py. Because that's an absolute
+        # script path, its directory wins sys.path — so it loads the real
+        # root-owned code, not a PYTHONPATH/cwd-shadowed copy. (We don't pin the
+        # exact python binary: framework-python's launcher stub differs from the
+        # running Mach-O, and any python running the real launcher runs the real
+        # agent anyway.)
+        return (len(argv) == 2
+                and "python" in os.path.basename(exec_path).lower()
+                and os.path.realpath(argv[1]) == self.expected_launcher)
+
     def _client(self, conn: socket.socket):
+        if not self._verify(conn):
+            print("[vault] rejected unverified peer", flush=True)
+            conn.close()
+            return
         buf = b""
         try:
             while True:
@@ -138,7 +219,8 @@ def main():
     sock = sb.get("socket_path", "/var/run/eyeguard.sock")
     uploader = build_uploader_from_config(cfg)
     VaultDaemon(uploader, sock,
-                agent_timeout=int(sb.get("agent_timeout", 90))).serve()
+                agent_timeout=int(sb.get("agent_timeout", 90)),
+                verify_peer=bool(sb.get("verify_peer", True))).serve()
 
 
 if __name__ == "__main__":

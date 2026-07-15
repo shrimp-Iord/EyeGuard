@@ -78,17 +78,20 @@ sudo install -m 644 -o root -g wheel "$CODE/deploy/com.eyeguard.vault.plist" \
   /Library/LaunchDaemons/com.eyeguard.vault.plist
 sudo launchctl bootstrap system /Library/LaunchDaemons/com.eyeguard.vault.plist
 
-# retire the old per-user agent, install the managed one (runs as you, root-owned)
+# retire the old per-user agent, install the managed one (root-owned, runs as you)
 launchctl bootout "gui/$(id -u)/com.eyeguard.monitor" 2>/dev/null || true
 rm -f "$HOME/Library/LaunchAgents/com.eyeguard.monitor.plist"
-# (the managed LaunchAgent plist points python at /Library code with mode=split;
-#  create it at /Library/LaunchAgents/com.eyeguard.monitor.plist, root-owned)
+sudo install -m 644 -o root -g wheel "$CODE/deploy/com.eyeguard.monitor.plist" \
+  /Library/LaunchAgents/com.eyeguard.monitor.plist
+launchctl bootstrap "gui/$(id -u)" /Library/LaunchAgents/com.eyeguard.monitor.plist
 ```
 
-> The managed session-agent plist is the current `com.eyeguard.monitor.plist`
-> with `WorkingDirectory` and `PYTHONPATH` pointed at `/Library/Application
-> Support/EyeGuard` and `StandardOutPath` at the user data dir. Install it to
-> `/Library/LaunchAgents` (root-owned) so you can't edit it.
+> The managed agent (`deploy/com.eyeguard.monitor.plist`) launches
+> `python /Library/Application Support/EyeGuard/run_agent.py` — an exact 2-arg
+> invocation the vault daemon's peer check pins to. **Test whether you can unload
+> it as a Standard user** (`launchctl bootout gui/$(id -u)/com.eyeguard.monitor`)
+> — if the OS refuses, capture can't even be stopped; if it allows it, KeepAlive
+> relaunches it and the daemon fires a blind alert. Either way it's covered.
 
 ## E. Verify (as your Standard account)
 
