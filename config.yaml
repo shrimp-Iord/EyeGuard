@@ -20,6 +20,12 @@ detection:
   # still auto-flagging real nudity (and CLIP still catches anything below it).
   flag_threshold: 0.70
 
+  # How often (seconds) to run the detector self-test: feed synthetic frames
+  # through the live pipeline and confirm it still produces sane output. If it
+  # breaks silently, the heartbeat carries detector_ok=false and the server
+  # alerts. Keep this <= 3600 so a broken detector is caught within the hour.
+  self_test_seconds: 1800
+
   # Actual exposure that should hard-flag without waiting for CLIP.
   explicit_labels:
     - FEMALE_BREAST_EXPOSED

@@ -135,10 +135,11 @@ class SupabaseUploader:
         `alerted` flag so a future outage can fire a fresh alert; a clean
         shutdown sets status='clean_shutdown' so it doesn't false-alarm."""
         now = datetime.now(timezone.utc).isoformat()
-        row = {"id": 1, "last_heartbeat": now, "status": status,
-               "updated_at": now}
+        core = {"id": 1, "last_heartbeat": now, "status": status,
+                "updated_at": now}
         if status == "alive":
-            row["alerted"] = False
+            core["alerted"] = False
+        row = dict(core)
         if self._status_provider is not None:
             try:
                 extra = self._status_provider() or {}
@@ -146,8 +147,19 @@ class SupabaseUploader:
                     row["screen_ok"] = bool(extra["screen_ok"])
                 if "frames_analyzed" in extra:
                     row["frames_analyzed"] = int(extra["frames_analyzed"])
+                if "detector_ok" in extra:
+                    row["detector_ok"] = bool(extra["detector_ok"])
             except Exception:
                 pass
+        try:
+            self._post_status(row)
+        except urllib.error.HTTPError:
+            # A missing optional column (schema not migrated yet) must never
+            # break the heartbeat — retry with just the core fields, so a fresh
+            # deploy can't false-trip gone-dark before its SQL is run.
+            self._post_status(core)
+
+    def _post_status(self, row: dict):
         req = urllib.request.Request(
             f"{self.base}/rest/v1/device_status", data=json.dumps(row).encode(),
             method="POST",

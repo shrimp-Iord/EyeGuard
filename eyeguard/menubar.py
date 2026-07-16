@@ -92,6 +92,9 @@ class EyeGuardApp(rumps.App):
         self._log_seen = False          # have we ever seen a non-empty flag log?
         self._log_missing = 0           # consecutive checks the log was missing
         self._log_lines = None          # tamper baseline: last known line count
+        self._detector_ok = True        # False if the self-test finds it broken
+        self._self_test_secs = int(self.cfg.get("detection", {})
+                                    .get("self_test_seconds", 1800))
         self._last_brightness: float | None = None
         # Frozen-capture detection: if the analyzed-frame count stops growing for
         # a long stretch while in use, we're almost certainly seeing only the
@@ -355,7 +358,8 @@ class EyeGuardApp(rumps.App):
                 def _status():
                     with self._lock:
                         return {"screen_ok": self._screen_ok,
-                                "frames_analyzed": self._frames_analyzed}
+                                "frames_analyzed": self._frames_analyzed,
+                                "detector_ok": self._detector_ok}
                 uploader.set_status_provider(_status)
             interval = cap["interval_seconds"]
         except Exception as e:
@@ -379,6 +383,8 @@ class EyeGuardApp(rumps.App):
         last_activity = 0.0
         last_activity_loc = None
         last_activity_log = 0.0
+        # First self-test 60s in (after warm-up), then every self_test_secs.
+        last_self_test = time.time() - self._self_test_secs + 60
         while not self._stop.is_set():
             try:
                 for frame in capturer.capture(skip_unchanged=True):
@@ -428,6 +434,17 @@ class EyeGuardApp(rumps.App):
                         print(f"[probe] PROBLEM brightness={bright} "
                               f"frames={frames} frozen={frozen} "
                               f"(no screen access?)", flush=True)
+
+                    # Detector self-test: prove the ML pipeline still flags, so a
+                    # silent breakage doesn't masquerade as a clean feed.
+                    if time.time() - last_self_test >= self._self_test_secs:
+                        last_self_test = time.time()
+                        ok, why = self._self_test(detector)
+                        with self._lock:
+                            self._detector_ok = ok
+                        if not ok:
+                            print(f"[selftest] DETECTOR UNHEALTHY: {why}",
+                                  flush=True)
 
                     # Local log-tamper. Retention is the ONLY sanctioned shrink
                     # (and it resets the baseline via _prune), so between prunes
@@ -498,6 +515,28 @@ class EyeGuardApp(rumps.App):
                 return float(arr[:, :3].mean())  # exclude the alpha byte
         except Exception:
             return None
+
+    def _self_test(self, detector) -> tuple[bool, str]:
+        """Run the LIVE detector on two synthetic frames and confirm it still
+        produces sane output — catches a silently-broken pipeline (models load
+        but analyze() errors or returns garbage after, say, an OS update) that
+        would otherwise just look like a quiet 'all clear' feed."""
+        try:
+            import numpy as np
+            from PIL import Image
+            for seed in (0, 1):
+                rng = np.random.default_rng(seed)
+                arr = (rng.random((256, 256, 3)) * 255).astype(np.uint8)
+                r = detector.analyze(Image.fromarray(arr, "RGB"))
+                if r.verdict not in (Verdict.SAFE, Verdict.FLAGGED,
+                                     Verdict.ALERT, Verdict.REVIEW):
+                    return False, "invalid verdict"
+                s = float(r.top_score)
+                if s != s or not (0.0 <= s <= 1.0):   # NaN or out of range
+                    return False, f"bad score {s}"
+            return True, "ok"
+        except Exception as e:
+            return False, f"{type(e).__name__}: {e}"
 
     def _drm_service(self, ctx: dict) -> str | None:
         """The DRM streaming service active in this context, if any."""

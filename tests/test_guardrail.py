@@ -46,6 +46,9 @@ between("arbiter.tile_penalty", a["tile_penalty"], 0.08, 0.25)
 check("arbiter.tile_grid >= 3", int(a["tile_grid"]) >= 3, str(a["tile_grid"]))
 check("arbiter.min_content_std <= 15", float(a["min_content_std"]) <= 15,
       str(a["min_content_std"]))
+check("detection.self_test_seconds <= 3600",
+      int(d.get("self_test_seconds", 1800)) <= 3600,
+      str(d.get("self_test_seconds")))
 
 print("— capture stays complete —")
 check("capture.interval_seconds <= 10", int(cap["interval_seconds"]) <= 10,
