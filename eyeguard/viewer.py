@@ -108,10 +108,17 @@ def _what(rec: dict) -> str:
     genitals" match — that would mislabel clothed-but-revealing content as nudity.
     Show an honest generic line and let the thumbnail show the specifics.
     """
-    if (rec.get("reason") or "").startswith("drm"):
+    reason0 = rec.get("reason") or ""
+    if reason0.startswith("drm"):
         return ("Not a content flag — macOS blanks DRM-protected video, so "
                 "EyeGuard couldn't view it. The title is logged so you can "
                 "review it yourself.")
+    if reason0.startswith("tamper"):
+        return _esc(reason0.split(":", 1)[-1].strip()) + \
+            " — a possible attempt to defeat monitoring."
+    if reason0.startswith("extension"):
+        return _esc(reason0.split(":", 1)[-1].strip()) + \
+            " — review whether it's legitimate."
     if rec.get("verdict") == "flagged":
         # NudeNet (trained nudity detector, runs first) fires on ACTUAL exposed
         # body parts, not bikinis — so a nudenet hit means real nudity.
@@ -161,11 +168,15 @@ def _card(rec: dict, dt: datetime, report_dir: Path) -> str:
                 f'<div class="where">{_where(rec)}</div></div></div>')
     red = verdict == "flagged"
     sev = "red" if red else "yellow"
+    _r = rec.get("reason") or ""
     if red:
-        sev_txt = ("Nudity" if (rec.get("reason") or "").startswith("nudenet")
+        sev_txt = ("Tamper" if _r.startswith("tamper")
+                   else "Nudity" if _r.startswith("nudenet")
                    else "Revealing")
-    elif (rec.get("reason") or "").startswith("drm"):
+    elif _r.startswith("drm"):
         sev_txt = "DRM Video"
+    elif _r.startswith("extension"):
+        sev_txt = "Extension"
     else:
         sev_txt = "Suggestive"
     grade = rec.get("grade") or ""

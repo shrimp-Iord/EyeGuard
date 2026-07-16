@@ -472,6 +472,39 @@ drm:
   # Re-flag the same title at most this often (seconds) while it keeps playing.
   repeat_seconds: 1800
 
+# Browser-extension monitoring. Extensions can defeat monitoring — a title
+# spoofer hides the site from the trail, an image/canvas/overlay extension can
+# fool detection — and a Standard user can install them without admin. The agent
+# baselines installed extensions at startup and flags any NEW one: a QUESTIONABLE
+# one (name matches a pattern below) as an immediate RED tamper alert, any other
+# new one as a YELLOW review flag.
+extensions:
+  enabled: true
+  scan_seconds: 60
+  # Substrings (case-insensitive) that mark an extension as a likely evasion tool.
+  questionable:
+    - title           # window/tab title changers — hide the site from the trail
+    - rename tab
+    - "user agent"
+    - useragent
+    - spoof
+    - vpn
+    - proxy
+    - canvas          # canvas manipulation — can perturb images past the detector
+    - fingerprint
+    - overlay
+    - blur
+    - pixelate
+    - opacity
+    - "hide image"
+    - "block image"
+    - "image block"
+    - stylish          # arbitrary CSS injection — can overlay / hide content
+    - userstyle
+    - "custom css"
+    - screenshot
+    - incognito
+
 activity_logging:
   enabled: true
   # How often (seconds) to check the active app/site. A new record is written

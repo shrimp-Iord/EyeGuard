@@ -66,7 +66,8 @@ for path, val in [
         ("supabase.heartbeat", sb.get("heartbeat")),
         ("context_risk.enabled", cr.get("enabled")),
         ("activity_logging.enabled", cfg["activity_logging"].get("enabled")),
-        ("drm.enabled", cfg["drm"].get("enabled"))]:
+        ("drm.enabled", cfg["drm"].get("enabled")),
+        ("extensions.enabled", cfg.get("extensions", {}).get("enabled"))]:
     check(f"{path} is true", val is True, repr(val))
 check("logging.retention_days == 7", int(lg["retention_days"]) == 7,
       str(lg["retention_days"]))
@@ -94,6 +95,10 @@ check("menubar applies context-risk", "assess(" in menu)
 check("menubar log-tamper detection present", "report_tamper" in menu
       and "_check_log_tamper" in menu)
 check("menubar DRM detection present", "_screen_is_black" in menu)
+check("menubar extension monitoring present",
+      "scan_extensions" in menu and "log_extension" in menu)
+check("extensions.questionable non-empty",
+      len(cfg.get("extensions", {}).get("questionable", [])) >= 5)
 
 print()
 if fails:

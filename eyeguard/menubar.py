@@ -22,6 +22,7 @@ import rumps
 
 from .capture import ScreenCapturer
 from .context import capture_context, frontmost_is_self, is_ignored
+from .extensions import scan as scan_extensions, is_questionable
 from .risk import assess
 from .detector import Verdict
 from .logger import FlagLogger
@@ -74,6 +75,11 @@ class EyeGuardApp(rumps.App):
         self._drm_repeat = int(self._drm.get("repeat_seconds", 1800))
         self._last_drm_title = None
         self._last_drm_time = 0.0
+        self._ext = self.cfg.get("extensions", {})
+        self._ext_on = bool(self._ext.get("enabled"))
+        self._ext_scan = int(self._ext.get("scan_seconds", 60))
+        self._ext_questionable = [p.lower() for p in self._ext.get("questionable", [])]
+        self._ext_baseline = None       # set on the first scan (no flags then)
 
         # Shared state, written by the detection thread, read by the UI timer.
         self._lock = threading.Lock()
@@ -385,6 +391,7 @@ class EyeGuardApp(rumps.App):
         last_activity_log = 0.0
         # First self-test 60s in (after warm-up), then every self_test_secs.
         last_self_test = time.time() - self._self_test_secs + 60
+        last_ext_scan = 0.0
         while not self._stop.is_set():
             try:
                 for frame in capturer.capture(skip_unchanged=True):
@@ -454,6 +461,33 @@ class EyeGuardApp(rumps.App):
                     if uploader is not None:
                         try:
                             self._check_log_tamper(logger.flag_log, uploader)
+                        except Exception:
+                            pass
+
+                    # Browser-extension monitoring: baseline at first scan, then
+                    # flag any NEW extension — questionable (evasion) ones red,
+                    # anything else yellow for review.
+                    if (self._ext_on and uploader is not None
+                            and time.time() - last_ext_scan >= self._ext_scan):
+                        last_ext_scan = time.time()
+                        try:
+                            current = scan_extensions()
+                            prev = self._ext_baseline
+                            self._ext_baseline = set(current)
+                            if prev is not None:
+                                for key in set(current) - prev:
+                                    browser = key[0]
+                                    name = current[key]
+                                    q = is_questionable(
+                                        name, self._ext_questionable)
+                                    uploader.enqueue(
+                                        logger.log_extension(name, browser, q))
+                                    self._record_flag(
+                                        Verdict.FLAGGED if q else Verdict.ALERT,
+                                        {"app": browser,
+                                         "window_title": f"{browser}: {name}"})
+                                    print(f"[extension] new {browser} ext "
+                                          f"'{name}' questionable={q}", flush=True)
                         except Exception:
                             pass
 

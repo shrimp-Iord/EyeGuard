@@ -69,6 +69,32 @@ class FlagLogger:
             f.write(json.dumps(record) + "\n")
         return record
 
+    def log_extension(self, name: str, browser: str,
+                      questionable: bool) -> dict:
+        """Log a newly-installed browser extension. Questionable ones (likely
+        evasion tools) are RED and route to the tamper alert; others are a YELLOW
+        review flag. Imageless."""
+        if questionable:
+            reason = f"tamper: questionable {browser} extension '{name}'"
+            verdict, grade, risk = "flagged", "Likely", "high"
+        else:
+            reason = f"extension: new {browser} extension '{name}'"
+            verdict, grade, risk = "alert", "Possible", "neutral"
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "verdict": verdict,
+            "reason": reason,
+            "app": browser,
+            "url": None,
+            "window_title": f"{browser}: {name}",
+            "grade": grade,
+            "risk": risk,
+            "no_image": True,
+        }
+        with self.flag_log.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+        return record
+
     def log_drm(self, context: dict | None = None,
                 service: str | None = None) -> dict:
         """Log a YELLOW flag for DRM streaming video that macOS blanks to black —
