@@ -517,23 +517,48 @@ class EyeGuardApp(rumps.App):
             return None
 
     def _self_test(self, detector) -> tuple[bool, str]:
-        """Run the LIVE detector on two synthetic frames and confirm it still
-        produces sane output — catches a silently-broken pipeline (models load
-        but analyze() errors or returns garbage after, say, an OS update) that
-        would otherwise just look like a quiet 'all clear' feed."""
+        """Run the LIVE detector on several distinct frames and confirm it's both
+        SANE and RESPONSIVE. Catches: a crashed/NaN pipeline (e.g. onnxruntime
+        broken by an OS update), and a naive neuter that patches analyze() to
+        return a constant 'safe' — which would show up as identical output for
+        different inputs.
+
+        Honest limit: this runs INSIDE the agent process, so a determined
+        attacker who can debug the process (see deploy/HARDENING_3.0.md — the
+        agent isn't hardened-runtime signed) can feed the self-test varied,
+        healthy-looking output while neutering real detection. Only hardened
+        signing closes that; this catches everything short of it."""
         try:
             import numpy as np
             from PIL import Image
-            for seed in (0, 1):
+
+            def grad():  # skin-tone gradient — passes the content gate
+                a = np.zeros((240, 320, 3), np.uint8)
+                for y in range(240):
+                    t = y / 240
+                    a[y, :] = [int(235 - 40 * t), int(190 - 45 * t),
+                               int(160 - 50 * t)]
+                return Image.fromarray(a, "RGB")
+
+            def noise(seed):
                 rng = np.random.default_rng(seed)
-                arr = (rng.random((256, 256, 3)) * 255).astype(np.uint8)
-                r = detector.analyze(Image.fromarray(arr, "RGB"))
+                return Image.fromarray(
+                    (rng.random((240, 320, 3)) * 255).astype(np.uint8), "RGB")
+
+            fingerprints = set()
+            for img in (grad(), noise(1), noise(2)):
+                r = detector.analyze(img)
                 if r.verdict not in (Verdict.SAFE, Verdict.FLAGGED,
                                      Verdict.ALERT, Verdict.REVIEW):
                     return False, "invalid verdict"
                 s = float(r.top_score)
-                if s != s or not (0.0 <= s <= 1.0):   # NaN or out of range
+                if s != s or not (0.0 <= s <= 1.0):   # NaN / out of range
                     return False, f"bad score {s}"
+                fingerprints.add((round(s, 4), r.reason))
+            # A live model gives DIFFERENT signals for different inputs; a
+            # constant/neutered one returns the same thing every time.
+            if len(fingerprints) == 1:
+                return False, "detector output is constant (unresponsive)"
             return True, "ok"
         except Exception as e:
             return False, f"{type(e).__name__}: {e}"
