@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""EyeGuard security guardrail.
+
+Runs on every pull request (see .github/workflows/guardrail.yml). It encodes the
+invariants that must stay true for EyeGuard to still be doing its job, so a PR
+that quietly weakens detection — raising a threshold, disabling a safety toggle,
+smuggling a site into the ignore lists, or gutting the socket peer check — fails
+CI with a red X and can't be merged, no matter how innocent the diff looks.
+
+This is defense-in-depth, not a proof: it catches the mechanical weakenings, not
+a subtle logic change. It does NOT replace the reviewer — it backs them up.
+
+Exit 0 = all invariants hold. Exit 1 = at least one is violated.
+"""
+import sys
+from pathlib import Path
+
+import yaml
+
+ROOT = Path(__file__).resolve().parent.parent
+fails: list[str] = []
+
+
+def check(name: str, ok: bool, detail: str = ""):
+    tag = "ok  " if ok else "FAIL"
+    print(f"  [{tag}] {name}" + (f" — {detail}" if detail and not ok else ""))
+    if not ok:
+        fails.append(name)
+
+
+cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
+d, a = cfg["detection"], cfg["arbiter"]
+cap, lg, sb = cfg["capture"], cfg["logging"], cfg["supabase"]
+cr = cfg["context_risk"]
+
+
+def between(name, val, lo, hi):
+    check(name, lo <= float(val) <= hi, f"{val} not in [{lo},{hi}]")
+
+
+print("— detection thresholds stay meaningful —")
+between("detection.flag_threshold", d["flag_threshold"], 0.50, 0.85)
+between("arbiter.red_threshold", a["red_threshold"], 0.50, 0.75)
+between("arbiter.yellow_threshold", a["yellow_threshold"], 0.40, 0.65)
+between("arbiter.tile_penalty", a["tile_penalty"], 0.08, 0.25)
+check("arbiter.tile_grid >= 3", int(a["tile_grid"]) >= 3, str(a["tile_grid"]))
+check("arbiter.min_content_std <= 15", float(a["min_content_std"]) <= 15,
+      str(a["min_content_std"]))
+
+print("— capture stays complete —")
+check("capture.interval_seconds <= 10", int(cap["interval_seconds"]) <= 10,
+      str(cap["interval_seconds"]))
+check("capture.change_threshold <= 0.05", float(cap["change_threshold"]) <= 0.05,
+      str(cap["change_threshold"]))
+check("capture.displays == all", str(cap["displays"]) == "all",
+      str(cap["displays"]))
+
+print("— safety toggles stay on —")
+for path, val in [
+        ("logging.save_flagged_frames", lg.get("save_flagged_frames")),
+        ("logging.blur_red_frames", lg.get("blur_red_frames")),
+        ("supabase.verify_peer", sb.get("verify_peer")),
+        ("supabase.heartbeat", sb.get("heartbeat")),
+        ("context_risk.enabled", cr.get("enabled")),
+        ("activity_logging.enabled", cfg["activity_logging"].get("enabled")),
+        ("drm.enabled", cfg["drm"].get("enabled"))]:
+    check(f"{path} is true", val is True, repr(val))
+check("logging.retention_days == 7", int(lg["retention_days"]) == 7,
+      str(lg["retention_days"]))
+
+print("— prompt banks aren't gutted —")
+check("explicit_prompts >= 5", len(a.get("explicit_prompts", [])) >= 5)
+check("suggestive_prompts >= 10", len(a.get("suggestive_prompts", [])) >= 10)
+check("safe_prompts >= 100", len(a.get("safe_prompts", [])) >= 100)
+
+print("— no risky site smuggled into the ignore lists —")
+DENY = ["porn", "onlyfans", "xvideos", "xhamster", "xnxx", "redtube", "youporn",
+        "chaturbate", "instagram", "facebook", "tiktok", "reddit", "twitter",
+        "x.com", "snapchat"]
+for listname in ("suppress", "low_risk"):
+    entries = [str(e).lower() for e in cr.get(listname, [])]
+    bad = [e for e in entries if any(term in e for term in DENY)]
+    check(f"context_risk.{listname} has no risky sites", not bad, str(bad))
+
+print("— security-critical code is still wired —")
+vault = (ROOT / "eyeguard" / "vault.py").read_text()
+menu = (ROOT / "eyeguard" / "menubar.py").read_text()
+check("vault peer check present",
+      "expected_launcher" in vault and "len(argv)" in vault)
+check("menubar applies context-risk", "assess(" in menu)
+check("menubar log-tamper detection present", "report_tamper" in menu
+      and "_check_log_tamper" in menu)
+check("menubar DRM detection present", "_screen_is_black" in menu)
+
+print()
+if fails:
+    print(f"GUARDRAIL FAILED — {len(fails)} invariant(s) violated: {fails}")
+    sys.exit(1)
+print("GUARDRAIL PASSED — all invariants hold.")

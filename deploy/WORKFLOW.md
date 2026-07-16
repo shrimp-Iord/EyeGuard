@@ -29,6 +29,10 @@ own hands on the keyboard for the deploy.
    - ✅ Require a pull request before merging
    - ✅ Require approvals — **1**
    - ✅ Require review from Code Owners
+   - ✅ **Require status checks to pass before merging** → select **`guardrail`**
+     (the `.github/workflows/guardrail.yml` check). This makes the security
+     guardrail *blocking* — a PR that weakens detection can't merge even if
+     approved by accident.
    - ✅ Do not allow bypassing the above settings (applies even to admins)
    - ✅ Restrict who can push to matching branches → only Dad
 3. Add a **`CODEOWNERS`** file (already in this repo, at `.github/CODEOWNERS`)
