@@ -182,6 +182,8 @@ class VaultDaemon:
                 if not data:
                     break
                 buf += data
+                if len(buf) > 1_000_000:  # a real message is tiny; drop floods
+                    break
                 while b"\n" in buf:
                     line, buf = buf.split(b"\n", 1)
                     if line.strip():
