@@ -13,8 +13,12 @@ admin or his logins.
 - [ ] Push all pending commits: `cd ~/Library/Application\ Support/EyeGuard && git push`
 
 ## 1. Cloud hardening (do first — no wipe needed, safe to do anytime today)
-`supabase/harden_pause.sql` — closes the confirmed pause-password brute-force hole.
-- [ ] Run it in the Supabase SQL Editor.
+Run these three in the Supabase SQL Editor (order doesn't matter, all idempotent):
+- [ ] `supabase/harden_pause.sql` — closes the pause-password brute-force hole.
+- [ ] `supabase/harden_functions.sql` — stops the public key sending arbitrary
+      email from your EyeGuard address (the spoofing hole).
+- [ ] `supabase/self_test.sql` — adds the detector self-test alert ("no flags"
+      can't masquerade as "all clear" if the pipeline silently breaks).
 - [ ] Set a **long, random** pause password with `./set-pause-password.sh`
       (Dad runs it, you never see the output) and paste the resulting
       `update settings ...` line into the SQL Editor.
