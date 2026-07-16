@@ -30,26 +30,37 @@ the socket peer check, "the key can't be read from the agent," the self-test —
 rests on this being solved. **It isn't, until the agent is a code-signed,
 hardened-runtime binary.**
 
-### The fix
+### The fix — and it's FREE (verified on this machine)
 
-1. **Enroll in the Apple Developer Program** ($99/yr) → get a **Developer ID
-   Application** certificate.
-2. **Ship EyeGuard as a signed, hardened-runtime app** (not a bare Python
-   interpreter running a script):
-   - Bundle the agent with PyInstaller (or py2app) into a single executable.
-   - Sign with `codesign --options runtime --sign "Developer ID Application: …"`.
-   - Notarize it (`notarytool`).
-   - Hardened runtime **without** the `get-task-allow` entitlement makes the
-     process **un-debuggable and injection-proof** — `lldb` attach and
-     `DYLD_INSERT_LIBRARIES` both fail, even for the owning user.
-3. The vault daemon should verify the session agent's **code signature** (Team
-   ID / cdhash via `SecCode`), not just its argv — now meaningful because the
-   agent is a signed binary, not an interpreter+script (whose signature is just
-   Python's).
+It does **not** require the $99 Apple Developer Program. That fee buys
+*notarization*, which is only for distributing an app to OTHER Macs without
+Gatekeeper warnings — irrelevant here, since EyeGuard is installed locally, not
+downloaded. **Ad-hoc hardened-runtime signing is free and sufficient.**
 
-This converts three "raise-the-bar" measures into real ones: the peer check
-*holds*, the self-test *can't be fed lies*, and the neuter-in-place attack is
-gone.
+Verified empirically: a fresh binary signed ad-hoc (`flags=0x2 adhoc`) accepts an
+`lldb` attach; the *same* binary re-signed with `--options runtime`
+(`flags=0x10002 adhoc,runtime`) denies it — *"Not allowed to attach to process."*
+`DYLD_INSERT_LIBRARIES` is likewise ignored once the runtime flag is set.
+
+Recipe:
+1. Bundle the agent into a single executable (PyInstaller / py2app) so there's
+   one main Mach-O to harden (a bare `python run_agent.py` can't be — the
+   signature would just be Python's).
+2. `codesign -f --options runtime --entitlements ent.plist --sign - <app>`, where
+   `ent.plist` grants `com.apple.security.cs.disable-library-validation`
+   (self-assignable — lets Python load onnxruntime/numpy/pyobjc under hardened
+   runtime) and, if onnxruntime needs it, `allow-unsigned-executable-memory` /
+   `allow-jit` — but **NOT** `get-task-allow` (its absence is what denies the
+   debugger).
+3. Runs locally with no notarization (a locally-built app has no quarantine
+   attribute, so Gatekeeper doesn't block it).
+4. The vault daemon then verifies the agent's exact **cdhash** (via `SecCode`),
+   not just its argv — now meaningful because it's a real signed binary.
+
+The only cost is packaging effort (getting Python + native deps to launch under
+hardened runtime with library validation disabled), not money. This converts
+three "raise-the-bar" measures into real ones: the peer check *holds*, the
+self-test *can't be fed lies*, and the neuter-in-place attack is gone.
 
 ## Second finding: the browser is unmanaged
 
@@ -63,10 +74,29 @@ A Standard user installs Firefox extensions **without admin**. Two defeat EyeGua
 
 ### The fix
 
-Manage the browser via **MDM** (the same Apple Business Manager tier from
-`LOCKDOWN.md`'s optional path): enforce an **extension allow-list** and a
-**managed content filter**. On a supervised Mac this is a profile Dad pushes and
-you can't remove.
+**Free, buildable now (makes the attacks tamper-EVIDENT):**
+
+1. **Monitor installed browser extensions.** The agent (running as you) can read
+   the extension directories — `~/Library/Application Support/Firefox/Profiles/*/
+   extensions/` and Chrome's `.../Extensions/` — and watch them with FSEvents. A
+   new/unknown extension → a flag your partner reviews. It doesn't *prevent* the
+   title-spoofer or the overlay extension, but it makes installing one **visible**
+   — and its integrity now rests on the agent not being neutered, which the free
+   hardened-runtime signing (above) secures.
+2. **Prefer Safari or Chrome over Firefox.** Their active-tab URL is readable via
+   AppleScript straight from the browser's internals — a content extension can't
+   easily spoof it, unlike the window *title* (which is all Firefox exposes, and
+   exactly what the spoofer rewrites). Switching the daily browser to a
+   URL-readable one makes the green trail's site-logging spoof-resistant; you
+   could even restrict to Safari/Chrome outright.
+3. **Ensemble detection** (already partial): a single adversarial overlay tuned to
+   fool CLIP often won't fool NudeNet, and vice-versa. More diverse detectors
+   raise the bar further.
+
+**Airtight (paid tier):** manage the browser via **MDM** — enforce an extension
+**allow-list** + a **managed content filter**. On a supervised Mac that's a
+profile Dad pushes and you can't remove. This is prevention rather than evidence,
+but the free measures above cover most of the gap.
 
 ## What 3.0 does NOT need to fix
 These are genuine scope limits, not holes — no build closes them:
