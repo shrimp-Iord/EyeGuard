@@ -17,3 +17,4 @@ transformers>=4.44,<5
 # Menu bar app (pulls in pyobjc). Used by eyeguard.menubar / install_agent.sh.
 rumps>=0.4
 pyobjc-framework-Quartz>=10  # window titles via CGWindowList (Screen Recording)
+pyobjc-framework-Vision

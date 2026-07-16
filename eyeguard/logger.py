@@ -69,6 +69,32 @@ class FlagLogger:
             f.write(json.dumps(record) + "\n")
         return record
 
+    def log_text(self, matched: list[str], source: str,
+                 context: dict | None = None, grade: str = "Possible",
+                 risk: str = "neutral") -> dict:
+        """Log an explicit-TEXT flag (YELLOW). `source` is 'screen' (OCR) or
+        'url' (URL/search signal). Imageless — the matched terms + site are the
+        signal; we don't save screenshots of private text."""
+        ctx = context or {}
+        if source == "url":
+            reason = "signal: explicit term in URL/search — " + ", ".join(matched[:5])
+        else:
+            reason = "text: explicit text on screen — " + ", ".join(matched[:5])
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "verdict": "alert",
+            "reason": reason,
+            "app": ctx.get("app"),
+            "url": ctx.get("url"),
+            "window_title": ctx.get("window_title"),
+            "grade": grade,
+            "risk": risk,
+            "no_image": True,
+        }
+        with self.flag_log.open("a") as f:
+            f.write(json.dumps(record) + "\n")
+        return record
+
     def log_extension(self, name: str, browser: str,
                       questionable: bool) -> dict:
         """Log a newly-installed browser extension. Questionable ones (likely

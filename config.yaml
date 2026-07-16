@@ -505,6 +505,51 @@ extensions:
     - screenshot
     - incognito
 
+# Text + signal layer. The image detector can't see the TEXTUAL side of
+# behavior — erotic text, sexual chat, explicit searches — because there's no
+# nude image to classify. These two on-device checks close that gap.
+text:
+  ocr_enabled: true         # OCR the screen (Apple Vision) + flag explicit text
+  signals_enabled: true     # flag explicit terms in the URL / window title / search
+  ocr_seconds: 8            # OCR at most this often (CPU control)
+  ocr_min_terms: 2          # need this many DISTINCT terms in OCR'd text to flag
+                            # (one incidental word won't; a porn page easily will)
+  # Explicit terms/site names (word-boundary, case-insensitive). Shared by OCR +
+  # signal scan. Tune freely — a false yellow is cheap, a miss is the failure.
+  terms:
+    - porn
+    - pornography
+    - pornhub
+    - xvideos
+    - xhamster
+    - xnxx
+    - redtube
+    - youporn
+    - brazzers
+    - onlyfans
+    - chaturbate
+    - spankbang
+    - motherless
+    - xxx
+    - nsfw
+    - nude
+    - nudes
+    - naked
+    - hentai
+    - rule34
+    - camgirl
+    - escort
+    - hardcore
+    - blowjob
+    - handjob
+    - cumshot
+    - creampie
+    - milf
+    - gangbang
+    - deepthroat
+    - bukkake
+    - fetish
+
 activity_logging:
   enabled: true
   # How often (seconds) to check the active app/site. A new record is written

@@ -279,15 +279,19 @@ function card(r, dt, signed){
   const red = r.verdict==="flagged";
   const rs = r.reason||"";
   const drm = rs.startsWith("drm"), tamper = rs.startsWith("tamper"), ext = rs.startsWith("extension");
+  const txt = rs.startsWith("text"), sig = rs.startsWith("signal");
   const sevCls = red?"red":"yellow";
   const sevTxt = red ? (tamper?"Tamper":(r.is_nudity?"Nudity":"Revealing"))
-                     : (drm?"DRM Video":(ext?"Extension":"Suggestive"));
+                     : (drm?"DRM Video":ext?"Extension":txt?"Text":sig?"Search":"Suggestive");
   const gcls = {Likely:"g-hi",Possible:"g-mid",Borderline:"g-lo"}[r.grade]||"";
   const grade = r.grade? `<span class="grade ${gcls}">${esc(r.grade)}</span>` : "";
   const url = r.image_path && signed[r.image_path];
   const img = url? `<img class="thumb" src="${url}" loading="lazy">` : "";
+  const detail = esc((rs.split(/—(.+)/)[1]||"").trim());
   const what = tamper ? esc(rs.split(/:(.+)/)[1]||"").trim()+" — a possible attempt to defeat monitoring."
                    : ext ? esc(rs.split(/:(.+)/)[1]||"").trim()+" — review whether it's legitimate."
+                   : txt ? "Explicit text on screen — "+detail
+                   : sig ? "Explicit term in the URL / search — "+detail
                    : red ? (r.is_nudity? "explicit nudity / exposed body — see image"
                                  : "very revealing content — see image")
                    : drm ? "Not a content flag — macOS blanks DRM-protected video, so EyeGuard couldn't view it. The title is logged so you can review it yourself."

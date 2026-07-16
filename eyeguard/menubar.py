@@ -80,6 +80,13 @@ class EyeGuardApp(rumps.App):
         self._ext_scan = int(self._ext.get("scan_seconds", 60))
         self._ext_questionable = [p.lower() for p in self._ext.get("questionable", [])]
         self._ext_baseline = None       # set on the first scan (no flags then)
+        self._text = self.cfg.get("text", {})
+        self._ocr_on = bool(self._text.get("ocr_enabled"))
+        self._signals_on = bool(self._text.get("signals_enabled"))
+        self._ocr_secs = int(self._text.get("ocr_seconds", 8))
+        self._ocr_min = int(self._text.get("ocr_min_terms", 2))
+        self._text_terms = [t for t in self._text.get("terms", [])]
+        self._last_signal_loc = None
 
         # Shared state, written by the detection thread, read by the UI timer.
         self._lock = threading.Lock()
@@ -392,6 +399,7 @@ class EyeGuardApp(rumps.App):
         # First self-test 60s in (after warm-up), then every self_test_secs.
         last_self_test = time.time() - self._self_test_secs + 60
         last_ext_scan = 0.0
+        last_ocr = 0.0
         while not self._stop.is_set():
             try:
                 for frame in capturer.capture(skip_unchanged=True):
@@ -418,6 +426,25 @@ class EyeGuardApp(rumps.App):
                         if uploader is not None:
                             uploader.enqueue(record)
                         self._record_flag(result.verdict, ctx)
+
+                    # TEXT layer: OCR the frame (throttled) and flag explicit
+                    # text the image detector can't see — erotic text, chat, etc.
+                    if (self._ocr_on and uploader is not None
+                            and time.time() - last_ocr >= self._ocr_secs):
+                        last_ocr = time.time()
+                        try:
+                            from .textscan import ocr, match_terms
+                            hits = match_terms(ocr(frame.image), self._text_terms)
+                            if len(set(hits)) >= self._ocr_min:
+                                ctx = capture_context()
+                                if not self._is_suppressed(ctx):
+                                    uploader.enqueue(
+                                        logger.log_text(hits, "screen", ctx))
+                                    self._record_flag(Verdict.ALERT, ctx)
+                                    print(f"[text] explicit screen text "
+                                          f"{hits[:4]}", flush=True)
+                        except Exception:
+                            pass
                 # Periodic blindness probe (independent of the change filter):
                 # if the screen is consistently black, we lack Screen Recording.
                 if time.time() - last_probe > 15:
@@ -494,7 +521,7 @@ class EyeGuardApp(rumps.App):
                 # GREEN activity trail: record what app/site is active (no image)
                 # so a reviewer sees everywhere the user went — a new row on each
                 # change of location, plus a keepalive every heartbeat interval.
-                if ((self._activity_on or self._drm_on)
+                if ((self._activity_on or self._drm_on or self._signals_on)
                         and time.time() - last_activity >= act_sample):
                     last_activity = time.time()
                     actx = capture_context()
@@ -529,6 +556,23 @@ class EyeGuardApp(rumps.App):
                                     self._record_flag(Verdict.ALERT, actx)
                                     self._last_drm_title = title
                                     self._last_drm_time = now3
+                        # SIGNAL flag: explicit term in the URL / search / title
+                        # (search queries surface here even with no image).
+                        if self._signals_on and not self._is_suppressed(actx):
+                            from .textscan import match_terms
+                            hay = ((actx.get("url") or "") + " "
+                                   + (actx.get("window_title") or ""))
+                            hits = match_terms(hay, self._text_terms)
+                            loc = actx.get("url") or actx.get("window_title")
+                            if hits and loc != self._last_signal_loc:
+                                uploader and uploader.enqueue(
+                                    logger.log_text(hits, "url", actx))
+                                self._record_flag(Verdict.ALERT, actx)
+                                self._last_signal_loc = loc
+                                print(f"[signal] explicit URL/search {hits[:4]}",
+                                      flush=True)
+                            elif not hits:
+                                self._last_signal_loc = None
             except Exception as e:
                 with self._lock:
                     self._watching = False
@@ -596,6 +640,18 @@ class EyeGuardApp(rumps.App):
             return True, "ok"
         except Exception as e:
             return False, f"{type(e).__name__}: {e}"
+
+    def _is_suppressed(self, ctx: dict) -> bool:
+        """True if this context is a suppress-listed one (dev tools, Claude,
+        EyeGuard's own report) — so text/signal scanning doesn't self-flag on
+        code, configs, or the report that literally lists explicit terms."""
+        if is_ignored(ctx, self._ignore):
+            return True
+        if not self._risk_on:
+            return False
+        hay = " ".join(filter(None, [ctx.get("app"), ctx.get("window_title"),
+                                     ctx.get("url")])).lower()
+        return any(p.lower() in hay for p in self._risk.get("suppress", []))
 
     def _drm_service(self, ctx: dict) -> str | None:
         """The DRM streaming service active in this context, if any."""
